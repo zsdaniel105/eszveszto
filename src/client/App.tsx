@@ -142,7 +142,7 @@ export function App() {
           <Logo small />
         </button>
         <span className="top-label">TUDÁS. TRÉFA. KÁOSZ.</span>
-        <span className="edition">MÁSODIK FELVONÁS</span>
+        <span className="edition">HARMADIK FELVONÁS</span>
       </header>
       {route.view === "home" ? (
         <Home onNavigate={navigate} />
@@ -273,7 +273,7 @@ function Home({
       </section>
       <p className="milestone-note">
         Szavazzatok témára, válaszoljatok, és fordítsatok a dupla pontos
-        döntőben! A szabotázs a következő felvonásban érkezik.
+        döntőben! Egy jól időzített szabotázs még megkeverheti a partit.
       </p>
     </main>
   );
@@ -777,7 +777,7 @@ function RoomView({
           </div>
         </fieldset>
         <div className="fixed-rules">
-          <span>✦ Szabotázs a következő felvonásban</span>
+          <span>✦ Kérdésenként egy ingyenes szabotázs</span>
           <span>✦ Kategóriák alapból bekapcsolva</span>
           <span>✦ Privát szoba, csak meghívóval</span>
         </div>

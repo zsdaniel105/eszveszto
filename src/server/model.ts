@@ -1,3 +1,4 @@
+import { isAbilityId } from "../shared/sabotage";
 import {
   advanceQuiz,
   initializeQuiz,
@@ -39,7 +40,7 @@ export interface StoredRoom extends Omit<
   players: StoredPlayer[];
   lastActivityAt: number;
   createHash: string;
-  schemaVersion: 2;
+  schemaVersion: 3;
   quiz: StoredQuiz | null;
   recentQuestionIds: string[];
 }
@@ -105,6 +106,16 @@ export function parseAction(value: unknown): Action {
       };
     case "leave":
       return { type: "leave" };
+    case "attack":
+      if (!isAbilityId(a.abilityId)) break;
+      return {
+        type: "attack",
+        abilityId: a.abilityId,
+        targetId: validateId(a.targetId),
+        ...parseContext(a),
+      };
+    case "skip-attack":
+      return { type: "skip-attack", ...parseContext(a) };
     case "vote": {
       if (typeof a.categoryId !== "string" || a.categoryId.length > 30) break;
       return { type: "vote", categoryId: a.categoryId, ...parseContext(a) };
@@ -153,25 +164,29 @@ function parseContext(a: Record<string, unknown>) {
   };
 }
 export function upgradeRoom(room: StoredRoom): boolean {
-  if (room.schemaVersion === 2) return false;
-  room.schemaVersion = 2;
-  room.quiz = null;
-  room.recentQuestionIds = [];
-  room.notice = null;
-  room.settingsRevision ??= 1;
-  room.players.forEach((p) => {
-    p.graceExpired = false;
-  });
-  if (room.phase === "session") {
-    room.phase = "lobby";
-    room.session = null;
-    room.settingsRevision++;
+  if (room.schemaVersion === 3) return false;
+  // v2 active questions/results retain all deadlines, answers and scores.
+  if ((room.schemaVersion as number | undefined) !== 2) {
+    room.quiz = null;
+    room.recentQuestionIds = [];
+    room.notice = null;
+    room.settingsRevision ??= 1;
     room.players.forEach((p) => {
-      p.ready = false;
+      p.graceExpired = false;
     });
-    room.notice =
-      "Frissült a játék! Jelezzétek újra, hogy készen álltok, és indulhat a kvíz.";
+    if (room.phase === "session") {
+      room.phase = "lobby";
+      room.session = null;
+      room.settingsRevision++;
+      room.players.forEach((p) => {
+        p.ready = false;
+      });
+      room.notice =
+        "Frissült a játék! Jelezzétek újra, hogy készen álltok, és indulhat a kvíz.";
+    }
   }
+  if (room.quiz) room.quiz.sabotage ??= null;
+  room.schemaVersion = 3;
   room.revision++;
   return true;
 }
@@ -247,7 +262,7 @@ export function createRoom(
     lastActivityAt: now,
     session: null,
     createHash: player.credentialHash,
-    schemaVersion: 2,
+    schemaVersion: 3,
     quiz: null,
     recentQuestionIds: [],
     notice: null,
@@ -358,7 +373,9 @@ export function applyAction(
   if (
     action.type === "vote" ||
     action.type === "answer" ||
-    action.type === "rematch"
+    action.type === "rematch" ||
+    action.type === "attack" ||
+    action.type === "skip-attack"
   ) {
     quizAction(room, playerId, action, now);
     return;

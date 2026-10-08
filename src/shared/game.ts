@@ -1,3 +1,4 @@
+import type { AbilityId, PublicSabotage } from "./sabotage";
 export const CHARACTERS = [
   {
     id: "maffiamacska",
@@ -77,11 +78,12 @@ export const DISCONNECT_GRACE_MS = 90_000;
 export const ROOM_IDLE_MS = 2 * 60 * 60 * 1000;
 export const ROOM_MAX_MS = 24 * 60 * 60 * 1000;
 export const CODE_PATTERN = /^[A-HJ-NP-Z2-9]{7}$/;
-// Sabotage phases remain reserved for PR #3.
+// Target selection is a local step inside one timed sabotage phase.
 export type GamePhase =
   | "lobby"
   | "session"
   | "category-vote"
+  | "sabotage-reveal"
   | "sabotage-selection"
   | "target-selection"
   | "question"
@@ -119,6 +121,8 @@ export type Action =
   | { type: "settings"; value: Settings }
   | { type: "start"; settingsRevision: number }
   | { type: "leave" }
+  | ({ type: "attack"; abilityId: AbilityId; targetId: string } & PhaseContext)
+  | ({ type: "skip-attack" } & PhaseContext)
   | ({ type: "vote"; categoryId: string } & PhaseContext)
   | ({ type: "answer"; optionIndex: number } & PhaseContext)
   | { type: "rematch"; sessionId: string; phaseId: string };
@@ -236,5 +240,6 @@ export interface PublicGame extends PhaseContext {
   answeredPlayerIds: string[];
   result: RoundResult | null;
   ranking: Ranking[];
+  sabotage: PublicSabotage | null;
 }
 export const categoryById = (id: string) => CATEGORIES.find((c) => c.id === id);

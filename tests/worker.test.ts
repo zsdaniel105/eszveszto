@@ -1,3 +1,4 @@
+import { ABILITIES, type AbilityId } from "../src/shared/sabotage";
 import { env } from "cloudflare:workers";
 import {
   SELF,
@@ -373,6 +374,17 @@ describe("real Worker and Durable Object transport", () => {
       await runDurableObjectAlarm(stub);
     }
     await expire();
+    const selection = await host.next(
+      (m) => m.type === "state" && m.room.phase === "sabotage-selection",
+    );
+    if (selection.type !== "state") throw new Error("Missing sabotage phase");
+    const selectionContext = {
+      sessionId: selection.room.game!.sessionId,
+      phaseId: selection.room.game!.phaseId,
+      round: selection.room.game!.round,
+    };
+    await host.action({ type: "skip-attack", ...selectionContext });
+    await guest.action({ type: "skip-attack", ...selectionContext });
     const a = await host.next(
       (m) => m.type === "state" && m.room.phase === "question",
     );
@@ -516,8 +528,185 @@ describe("real Worker and Durable Object transport", () => {
     const stored = (await runInDurableObject(stub, async (_instance, ctx) =>
       ctx.storage.get<StoredRoom>("room"),
     ))!;
-    expect(stored.schemaVersion).toBe(2);
+    expect(stored.schemaVersion).toBe(3);
     expect(stored.quiz).toBeNull();
+  });
+  it("accounts for seven mixed attacks, deduplicates requests, restores offers and effects, and enforces Freeze in the real Worker", async () => {
+    const created = await create();
+    const tokens = [created.token, ...Array.from({ length: 7 }, credential)];
+    const ids = [created.playerId];
+    for (let i = 1; i < 8; i++) {
+      const response = await post(`/api/rooms/${created.code}/join`, {
+        nickname: `Ellenfél ${i}`,
+        character: "zum",
+        credential: tokens[i],
+      });
+      ids.push(((await response.json()) as { playerId: string }).playerId);
+    }
+    const clients = await Promise.all(
+      tokens.map((token) => connect(created.code, token)),
+    );
+    await Promise.all(clients.map((c) => c.next(state)));
+    await Promise.all(
+      clients.map((c) => c.action({ type: "ready", value: true })),
+    );
+    await clients[0].action({ type: "start" });
+    const stub = bindings.ROOMS.get(bindings.ROOMS.idFromName(created.code));
+    await runInDurableObject(stub, async (_instance, ctx) => {
+      const room = (await ctx.storage.get<StoredRoom>("room"))!;
+      room.quiz!.deadline = Date.now() - 1;
+      await ctx.storage.put("room", room);
+    });
+    await evictDurableObject(stub);
+    await runDurableObjectAlarm(stub);
+    const selection = await clients[0].next(
+      (m) => m.type === "state" && m.room.phase === "sabotage-selection",
+    );
+    if (selection.type !== "state") throw new Error("No selection");
+    const c = {
+      sessionId: selection.room.game!.sessionId,
+      phaseId: selection.room.game!.phaseId,
+      round: selection.room.game!.round,
+    };
+    const abilities: AbilityId[] = [
+      "freeze",
+      "slime",
+      "shuffle",
+      "upside-down",
+      "ink",
+      "roulette",
+      "freeze",
+    ];
+    // Controlled persisted offers are a test fixture, never a production endpoint.
+    await runInDurableObject(stub, async (_instance, ctx) => {
+      const room = (await ctx.storage.get<StoredRoom>("room"))!;
+      abilities.forEach((id, i) => {
+        room.quiz!.sabotage!.offers[ids[i + 1]] = [
+          id,
+          ...ABILITIES.map((a) => a.id)
+            .filter((other) => other !== id)
+            .slice(0, 2),
+        ];
+      });
+      await ctx.storage.put("room", room);
+    });
+    await evictDurableObject(stub);
+    clients[1] = await connect(created.code, tokens[1]);
+    const offered = await clients[1].next(
+      (m) => m.type === "state" && m.room.phase === "sabotage-selection",
+    );
+    if (offered.type !== "state") throw new Error("No restored offer");
+    const offers = offered.room.game!.sabotage!.offers;
+    expect(offers).toHaveLength(3);
+    expect(offers[0]).toBe("freeze");
+    const requestId = crypto.randomUUID();
+    const first = {
+      type: "attack",
+      abilityId: "freeze",
+      targetId: ids[0],
+      ...c,
+      requestId,
+    };
+    clients[1].send(first);
+    await clients[1].next((m) => m.type === "ack" && m.requestId === requestId);
+    clients[1].send(first);
+    await clients[1].next((m) => m.type === "ack" && m.requestId === requestId);
+    await evictDurableObject(stub);
+    clients[1] = await connect(created.code, tokens[1]);
+    const restored = await clients[1].next(
+      (m) => m.type === "state" && m.room.phase === "sabotage-selection",
+    );
+    expect(
+      restored.type === "state" && restored.room.game!.sabotage!.offers,
+    ).toEqual(offers);
+    expect(
+      restored.type === "state" && restored.room.game!.sabotage!.myChoice,
+    ).toEqual({ type: "attack", abilityId: "freeze", targetId: ids[0] });
+    expect(
+      (
+        await clients[1].action({
+          type: "attack",
+          abilityId: "freeze",
+          targetId: ids[0],
+          ...c,
+        })
+      ).type,
+    ).toBe("error");
+    for (let i = 2; i < 8; i++)
+      expect(
+        (
+          await clients[i].action({
+            type: "attack",
+            abilityId: abilities[i - 1],
+            targetId: ids[0],
+            ...c,
+          })
+        ).type,
+      ).toBe("ack");
+    await clients[0].action({ type: "skip-attack", ...c });
+    const question = await clients[0].next(
+      (m) => m.type === "state" && m.room.phase === "question",
+    );
+    if (question.type !== "state") throw new Error("No question");
+    const game = question.room.game!,
+      s = game.sabotage!;
+    expect(s.incoming).toHaveLength(7);
+    expect(new Set(s.incoming.map((a) => a.attackerId)).size).toBe(7);
+    expect(s.incoming.every((a) => a.targetId === ids[0])).toBe(true);
+    expect(s.effects!.answerUnlockAt - game.startedAt).toBe(2000);
+    expect(s.effects!.freezeUntil - game.startedAt).toBe(1600);
+    expect(JSON.stringify(game)).not.toContain("correctIndex");
+    const stored = (await runInDurableObject(stub, async (_instance, ctx) =>
+      ctx.storage.get<StoredRoom>("room"),
+    ))!;
+    expect(stored.quiz!.sabotage!.attacks).toHaveLength(7);
+    const qc = {
+      sessionId: game.sessionId,
+      phaseId: game.phaseId,
+      round: game.round,
+    };
+    const frozen = await clients[0].action({
+      type: "answer",
+      optionIndex: stored.quiz!.correctIndex,
+      ...qc,
+    });
+    expect(frozen.type === "error" && frozen.code).toBe("FROZEN");
+    await evictDurableObject(stub);
+    clients[0] = await connect(created.code, tokens[0]);
+    const current = await clients[0].next(
+      (m) => m.type === "state" && m.room.phase === "question",
+    );
+    expect(
+      current.type === "state" && current.room.game!.sabotage!.effects,
+    ).toEqual(s.effects);
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        Math.max(0, s.effects!.answerUnlockAt - Date.now()) + 25,
+      ),
+    );
+    const replies = await Promise.all(
+      clients.map((client) =>
+        client.action({
+          type: "answer",
+          optionIndex: stored.quiz!.correctIndex,
+          ...qc,
+        }),
+      ),
+    );
+    expect(replies.every((m) => m.type === "ack")).toBe(true);
+    const result = await clients[0].next(
+      (m) => m.type === "state" && m.room.phase === "results",
+    );
+    expect(
+      result.type === "state" &&
+        result.room.game!.ranking.every(
+          (p) => p.correctAnswers === 1 && p.score >= 100,
+        ),
+    ).toBe(true);
+    expect(
+      result.type === "state" && result.room.game!.sabotage!.incoming,
+    ).toHaveLength(7);
   });
   it("bounds streamed input and applies per-socket action throttling", async () => {
     const oversized = await SELF.fetch(origin + "/api/rooms", {
