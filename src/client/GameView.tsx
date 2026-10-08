@@ -1,3 +1,5 @@
+import { SabotageSelection, AttackSummary } from "./SabotageView";
+import { QuestionEffects } from "./QuestionEffects";
 import { useEffect, useState } from "react";
 import {
   categoryById,
@@ -197,6 +199,28 @@ export function GameView({
             </p>
           </>
         )}
+        {room.phase === "sabotage-selection" && game.sabotage && (
+          <SabotageSelection
+            key={game.phaseId}
+            game={game}
+            busy={busy}
+            disabled={disabled}
+            onAction={onAction}
+          />
+        )}
+        {room.phase === "sabotage-reveal" && (
+          <div className="attack-reveal">
+            <h1>
+              {game.sabotage?.incoming.length
+                ? "Jön a meglepetés!"
+                : "Felkészültél?"}
+            </h1>
+            <AttackSummary game={game} full />
+            <p className="phase-note">
+              Mindjárt jön a kérdés. Minden hatásnak van határa!
+            </p>
+          </div>
+        )}
         {room.phase === "question" && q && (
           <>
             {(game.round - 1) % 3 === 0 && (
@@ -205,37 +229,24 @@ export function GameView({
                 {game.voteCounts[game.categoryId!] ?? 0} szavazat
               </p>
             )}
-            <h1 className="question-prompt">{q.prompt}</h1>
-            {q.image && (
-              <img
-                className="question-image"
-                src={q.image.url}
-                alt={q.image.alt}
-              />
-            )}
-            <div className="answer-options">
-              {q.options.map((option, index) => (
-                <button
-                  key={index}
-                  className={`answer-card ${game.myAnswer === index ? "selected" : ""}`}
-                  disabled={disabled || game.myAnswer !== null}
-                  aria-pressed={game.myAnswer === index}
-                  onClick={() =>
-                    void onAction({
-                      type: "answer",
-                      optionIndex: index,
-                      ...context,
-                    })
-                  }
-                >
-                  <span className="answer-letter">
-                    {String.fromCharCode(65 + index)}
-                  </span>
-                  <strong>{option}</strong>
-                  {game.myAnswer === index && <span aria-hidden="true">✓</span>}
-                </button>
-              ))}
-            </div>
+            <AttackSummary game={game} />
+            <QuestionEffects
+              key={game.phaseId}
+              question={q}
+              effects={game.sabotage?.effects ?? null}
+              now={now + clockOffset}
+              phaseId={game.phaseId}
+              playerId={playerId}
+              myAnswer={game.myAnswer}
+              disabled={disabled}
+              onAnswer={(index) =>
+                void onAction({
+                  type: "answer",
+                  optionIndex: index,
+                  ...context,
+                })
+              }
+            />
             <p className="answer-status" role="status">
               {game.myAnswer !== null
                 ? "✓ Válaszod rögzítve. Várjuk a többieket!"
@@ -294,6 +305,10 @@ export function GameView({
                 <strong>+{result?.total ?? 0}</strong>
               </div>
             </div>
+            <details className="result-attacks">
+              <summary>Szabotázs ebben a körben</summary>
+              <AttackSummary game={game} full />
+            </details>
             <p className="phase-note">Mindjárt jön a ranglista.</p>
           </>
         )}

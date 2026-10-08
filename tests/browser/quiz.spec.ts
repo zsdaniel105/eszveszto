@@ -1,3 +1,4 @@
+import { abilityById, type AbilityId } from "../../src/shared/sabotage";
 import { expect, test } from "@playwright/test";
 import { QUESTIONS } from "../../src/server/questions";
 import type { PublicRoom } from "../../src/shared/game";
@@ -6,12 +7,15 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
   browser,
   baseURL,
 }, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const hostContext = await browser.newContext({
     viewport: { width: 390, height: 740 },
+    hasTouch: true,
   });
   const guestContext = await browser.newContext({
     viewport: { width: 320, height: 640 },
+    hasTouch: true,
+    reducedMotion: "reduce",
   });
   const host = await hostContext.newPage(),
     guest = await guestContext.newPage();
@@ -54,6 +58,7 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
     await expect(host.locator('[data-phase="category-vote"]')).toBeVisible();
     const sessionId = snapshots.host!.game!.sessionId;
     const seen = new Set<string>();
+    const abilitiesSeen = new Set<AbilityId>();
     let hostScore = 0,
       guestScore = 0;
     for (let round = 1; round <= 6; round++) {
@@ -84,6 +89,91 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
         ).toBeVisible();
       }
       for (const page of [host, guest])
+        await expect(
+          page.locator('[data-phase="sabotage-selection"]'),
+        ).toBeVisible({ timeout: 12000 });
+      for (const page of [host, guest]) {
+        await expect(page.locator(".ability-card")).toHaveCount(3);
+        await expect(page.locator(".target-card")).toHaveCount(0);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
+      }
+      if (round === 1) {
+        const before = [...snapshots.host!.game!.sabotage!.offers];
+        await host.screenshot({
+          path: testInfo.outputPath("sabotage-mobile.png"),
+          fullPage: true,
+        });
+        await host.reload();
+        await expect(host.locator(".ability-card")).toHaveCount(3);
+        expect(snapshots.host!.game!.sabotage!.offers).toEqual(before);
+      }
+      if (round === 1)
+        await guest.screenshot({
+          path: testInfo.outputPath("sabotage-320.png"),
+          fullPage: true,
+        });
+      const selectedAbilities: AbilityId[] = [];
+      for (const [key, page, opponent] of [
+        ["host", host, "Kihívó"],
+        ["guest", guest, "Kvízmester"],
+      ] as const) {
+        const offers = snapshots[key]!.game!.sabotage!.offers;
+        const ability =
+          offers.find((id) => !abilitiesSeen.has(id)) ?? offers[0];
+        selectedAbilities.push(ability);
+        abilitiesSeen.add(ability);
+        await page
+          .locator(".ability-card")
+          .filter({ hasText: abilityById(ability).name })
+          .click();
+        await expect(page.locator(".ability-card")).toHaveCount(0);
+        await expect(page.locator(".target-card")).toHaveCount(1);
+        await expect(
+          page.getByRole("button", {
+            name: `Célpont: ${key === "host" ? "Kvízmester" : "Kihívó"}`,
+          }),
+        ).toHaveCount(0);
+        if (round === 1 && key === "host") {
+          await page.screenshot({
+            path: testInfo.outputPath("target-mobile.png"),
+            fullPage: true,
+          });
+          await page.getByRole("button", { name: "Másik képesség" }).click();
+          await expect(page.locator(".ability-card")).toHaveCount(3);
+          expect(snapshots.host!.game!.sabotage!.offers).toEqual(offers);
+          await page
+            .locator(".ability-card")
+            .filter({ hasText: abilityById(ability).name })
+            .click();
+        }
+        if (round === 1 && key === "guest")
+          await page.screenshot({
+            path: testInfo.outputPath("target-320.png"),
+            fullPage: true,
+          });
+        await page
+          .getByRole("button", { name: `Célpont: ${opponent}` })
+          .click();
+        if (key === "host") {
+          await expect(
+            page.getByRole("heading", { name: "Támadás rögzítve!" }),
+          ).toBeVisible();
+          expect(snapshots.guest!.game!.sabotage!.incoming).toEqual([]);
+          if (round === 1) {
+            const choice = snapshots.host!.game!.sabotage!.myChoice;
+            await host.reload();
+            await expect(
+              host.getByRole("heading", { name: "Támadás rögzítve!" }),
+            ).toBeVisible();
+            expect(snapshots.host!.game!.sabotage!.myChoice).toEqual(choice);
+          }
+        }
+      }
+      for (const page of [host, guest])
         await expect(page.locator('[data-phase="question"]')).toBeVisible({
           timeout: 12_000,
         });
@@ -101,6 +191,100 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
         throw new Error("Unexpected starter question format");
       const correct = item.options[item.correctIndex];
       const wrong = q.options.find((option) => option !== correct)!;
+      expect(snapshots.host!.game!.sabotage!.incoming[0].abilityId).toBe(
+        selectedAbilities[1],
+      );
+      expect(snapshots.guest!.game!.sabotage!.incoming[0].abilityId).toBe(
+        selectedAbilities[0],
+      );
+      if (round === 1)
+        await guest.screenshot({
+          path: testInfo.outputPath("question-320.png"),
+          fullPage: true,
+        });
+      // Exercise the actual randomly offered mechanics; no frontend or server fixtures.
+      await Promise.all(
+        [
+          [host, selectedAbilities[1]],
+          [guest, selectedAbilities[0]],
+        ].map(async ([p, id]) => {
+          const page = p as typeof host,
+            ability = id as AbilityId;
+          if (ability === "freeze") {
+            await expect(page.locator(".effect-status")).toContainText(
+              "Fagyasztás",
+            );
+            await expect(page.locator(".answer-card").first()).toBeDisabled();
+            await page.locator(".answer-card").first().click({ force: true });
+            await expect(
+              page.locator(".answer-card[aria-pressed=true]"),
+            ).toHaveCount(0);
+          }
+          if (ability === "shuffle" || ability === "roulette") {
+            const initial = q.options;
+            await expect
+              .poll(() => page.locator(".answer-text").allTextContents(), {
+                timeout: 3000,
+                intervals: [100],
+              })
+              .not.toEqual(initial);
+            await expect(page.locator(".answer-card").first()).toBeEnabled({
+              timeout: 3500,
+            });
+            const settled = await page
+              .locator(".answer-text")
+              .allTextContents();
+            expect(new Set(settled)).toEqual(new Set(q.options));
+          }
+          if (ability === "upside-down") {
+            await expect(page.locator(".answer-options")).toHaveClass(
+              /is-upside-down/,
+            );
+            await expect(page.locator(".answer-options")).not.toHaveClass(
+              /is-upside-down/,
+              { timeout: 5000 },
+            );
+          }
+          if (ability === "slime") {
+            const count = await page.locator(".slime-patch").count();
+            expect(count).toBe(2);
+            await page.locator(".slime-patch").first().tap();
+            await expect(page.locator(".slime-patch")).toHaveCount(count - 1);
+            await page.reload();
+            await expect(page.locator(".slime-patch")).toHaveCount(count - 1);
+            await page.locator(".slime-patch").first().focus();
+            await page.keyboard.press("Enter");
+            await expect(page.locator(".slime-patch")).toHaveCount(0);
+          }
+          if (ability === "ink") {
+            await expect(page.locator(".ink-patch")).toHaveCount(2);
+            await page.locator(".ink-patch").first().focus();
+            await page.keyboard.press("Enter");
+            await expect(page.locator(".ink-patch.dispersing")).toHaveCount(1);
+            await page.keyboard.press("Enter");
+            await expect(page.locator(".ink-patch")).toHaveCount(1);
+            await page.locator(".ink-patch").first().scrollIntoViewIfNeeded();
+            const box = await page.locator(".ink-patch").first().boundingBox();
+            await page.mouse.move(
+              box!.x + box!.width / 2,
+              box!.y + box!.height / 2,
+            );
+            await page.mouse.down();
+            await page.mouse.move(
+              box!.x + box!.width / 2 + 20,
+              box!.y + box!.height / 2,
+            );
+            await page.mouse.up();
+            await expect(page.locator(".ink-patch")).toHaveCount(0);
+            await expect(
+              page.locator(".answer-card[aria-pressed=true]"),
+            ).toHaveCount(0);
+          }
+          await expect(page.locator(".answer-card").first()).toBeEnabled({
+            timeout: 3500,
+          });
+        }),
+      );
       if (round === 1) {
         for (const width of [320, 375, 390, 430, 1280]) {
           await host.setViewportSize({ width, height: 740 });
@@ -177,6 +361,10 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
         timeout: 7_000,
       });
     expect(seen.size).toBe(6);
+    await testInfo.attach("actual-abilities-tested", {
+      body: JSON.stringify([...abilitiesSeen]),
+      contentType: "application/json",
+    });
     const ranking = snapshots.host!.game!.ranking;
     expect(ranking[0].nickname).toBe("Kvízmester");
     expect(ranking[0].score).toBe(hostScore);

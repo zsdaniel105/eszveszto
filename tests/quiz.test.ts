@@ -50,9 +50,12 @@ function context(room: ReturnType<typeof fixture>["room"]) {
   };
 }
 function open(room: ReturnType<typeof fixture>["room"]) {
-  advanceQuiz(room, room.quiz!.deadline!);
-  if (room.phase === "finale") advanceQuiz(room, room.quiz!.deadline!);
+  while (room.phase !== "question") {
+    if (room.quiz!.deadline === null) throw new Error("No next question");
+    advanceQuiz(room, room.quiz!.deadline!);
+  }
 }
+
 describe("question bank and selection", () => {
   it("contains 120 unique structurally valid published questions, ten per category", () => {
     expect(QUESTIONS).toHaveLength(120);
@@ -282,6 +285,8 @@ describe("scoring and the complete game loop", () => {
         GAME_TIMING.leaderboard,
     );
     expect(room.quiz!.round).toBe(2);
+    expect(room.phase).toBe("sabotage-selection");
+    open(room);
     expect(room.phase).toBe("question");
     const { room: delayed, now } = fixture();
     advanceQuiz(delayed, now + 60 * 60 * 1000);

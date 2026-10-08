@@ -1,3 +1,11 @@
+import { SABOTAGE_BALANCE } from "../shared/sabotage";
+import {
+  createSabotage,
+  commitSabotage,
+  resolveSabotage,
+  publicSabotage,
+  type StoredSabotage,
+} from "./sabotage";
 import {
   CATEGORIES,
   FINALE_LENGTH,
@@ -39,6 +47,7 @@ export interface StoredQuiz {
   result: RoundResult | null;
   previousRanks: Record<string, number>;
   finaleAnnounced: boolean;
+  sabotage: StoredSabotage | null;
 }
 export function randomIndex(length: number): number {
   if (!Number.isInteger(length) || length < 1)
@@ -184,6 +193,7 @@ function beginVote(room: StoredRoom, now: number) {
   q.currentQuestionId = null;
   q.answers = {};
   q.result = null;
+  q.sabotage = null;
   phase(room, "category-vote", now, GAME_TIMING.vote);
 }
 export function initializeQuiz(room: StoredRoom, now: number) {
@@ -231,6 +241,7 @@ export function initializeQuiz(room: StoredRoom, now: number) {
     result: null,
     previousRanks: {},
     finaleAnnounced: false,
+    sabotage: null,
   };
   beginVote(room, now);
 }
@@ -241,13 +252,17 @@ export function isFinale(room: StoredRoom): boolean {
       room.settings.questionCount - FINALE_LENGTH[room.settings.questionCount]
   );
 }
-function openQuestion(room: StoredRoom, now: number) {
+function beforeQuestion(room: StoredRoom, now: number) {
   const q = room.quiz!;
   if (isFinale(room) && !q.finaleAnnounced) {
     q.finaleAnnounced = true;
     phase(room, "finale", now, GAME_TIMING.finale);
     return;
   }
+  beginSabotage(room, now);
+}
+function beginSabotage(room: StoredRoom, now: number) {
+  const q = room.quiz!;
   const item = questionById(q.blockQuestionIds[(q.round - 1) % 3]);
   const raw = item.type === "true-false" ? ["Igaz", "Hamis"] : item.options;
   const answer =
@@ -262,6 +277,21 @@ function openQuestion(room: StoredRoom, now: number) {
     .filter(
       (p) =>
         !p.graceExpired && q.participants.some((m) => m.id === p.id && !m.left),
+    )
+    .map((p) => p.id);
+  q.sabotage = createSabotage(room);
+  phase(room, "sabotage-selection", now, SABOTAGE_BALANCE.selectionMs);
+}
+function revealAttacks(room: StoredRoom, now: number) {
+  resolveSabotage(room, now + SABOTAGE_BALANCE.revealMs);
+  phase(room, "sabotage-reveal", now, SABOTAGE_BALANCE.revealMs);
+}
+function openQuestion(room: StoredRoom, now: number) {
+  room.quiz!.eligiblePlayerIds = room.players
+    .filter(
+      (p) =>
+        !p.graceExpired &&
+        room.quiz!.participants.some((m) => m.id === p.id && !m.left),
     )
     .map((p) => p.id);
   phase(room, "question", now, GAME_TIMING.question);
@@ -354,10 +384,10 @@ export function advanceQuiz(room: StoredRoom, now: number): boolean {
   if (!room.quiz) return false;
   let changed = false;
   // Anchoring to the expired deadline catches up delayed alarms without resetting
-  // timers or double-scoring. Maximum normal match has fewer than 100 transitions.
+  // timers or double-scoring. Maximum normal match has fewer than 120 transitions.
   for (
     let steps = 0;
-    room.quiz.deadline !== null && room.quiz.deadline <= now && steps < 100;
+    room.quiz.deadline !== null && room.quiz.deadline <= now && steps < 160;
     steps++
   ) {
     const q = room.quiz;
@@ -374,10 +404,16 @@ export function advanceQuiz(room: StoredRoom, now: number): boolean {
         );
         q.blockQuestionIds = selectBlock(q.categoryId, room);
         q.usedQuestionIds.push(...q.blockQuestionIds);
-        openQuestion(room, at);
+        beforeQuestion(room, at);
         break;
       }
       case "finale":
+        beginSabotage(room, at);
+        break;
+      case "sabotage-selection":
+        revealAttacks(room, at);
+        break;
+      case "sabotage-reveal":
         openQuestion(room, at);
         break;
       case "question":
@@ -392,7 +428,7 @@ export function advanceQuiz(room: StoredRoom, now: number): boolean {
         } else {
           q.round++;
           if ((q.round - 1) % 3 === 0) beginVote(room, at);
-          else openQuestion(room, at);
+          else beforeQuestion(room, at);
         }
         break;
       default:
@@ -404,7 +440,10 @@ export function advanceQuiz(room: StoredRoom, now: number): boolean {
 export function quizAction(
   room: StoredRoom,
   playerId: string,
-  action: Extract<Action, { type: "vote" | "answer" | "rematch" }>,
+  action: Extract<
+    Action,
+    { type: "vote" | "answer" | "rematch" | "attack" | "skip-attack" }
+  >,
   now: number,
 ) {
   const q = room.quiz;
@@ -460,7 +499,20 @@ export function quizAction(
         "Lejárt az idő. A következő körben újra próbálkozhatsz!",
         409,
       );
-    if (action.type === "vote") {
+    if (action.type === "attack" || action.type === "skip-attack") {
+      const complete = commitSabotage(
+        room,
+        playerId,
+        action.type === "attack"
+          ? {
+              type: "attack",
+              abilityId: action.abilityId,
+              targetId: action.targetId,
+            }
+          : { type: "skip", reason: "explicit" },
+      );
+      if (complete) revealAttacks(room, now);
+    } else if (action.type === "vote") {
       if (
         room.phase !== "category-vote" ||
         !q.categoryOptions.includes(action.categoryId)
@@ -487,6 +539,15 @@ export function quizAction(
         throw new RoomError(
           "ANSWER_LOCKED",
           "Ezt a választ már rögzítettük. Ebben a körben nem módosíthatod.",
+          409,
+        );
+      const effects = q.sabotage?.effects[playerId];
+      if (effects && now < effects.answerUnlockAt)
+        throw new RoomError(
+          now < effects.freezeUntil ? "FROZEN" : "ANSWERS_MOVING",
+          now < effects.freezeUntil
+            ? "Még tart a fagyasztás! Amint felolvad, válaszolhatsz."
+            : "Még rendeződnek a válaszok. Egy pillanat, és válaszolhatsz!",
           409,
         );
       q.answers[playerId] = {
@@ -543,6 +604,7 @@ export function publicQuiz(
     answeredPlayerIds: Object.keys(q.answers),
     result: reveal ? q.result : null,
     ranking: ranking(room),
+    sabotage: publicSabotage(room, viewerId),
   };
 }
 // Used by content tests without leaking the bank into the browser build.
