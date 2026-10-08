@@ -1,4 +1,4 @@
-name: Validate foundation
+name: Validate multiplayer quiz
 on:
   pull_request:
   push:

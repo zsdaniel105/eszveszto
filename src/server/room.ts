@@ -1,8 +1,10 @@
+import { advanceQuiz } from "./quiz";
 import type { Env } from "./index";
 import { DurableObject } from "cloudflare:workers";
 import { DISCONNECT_GRACE_MS, type ServerMessage } from "../shared/game";
 import {
   applyAction,
+  upgradeRoom,
   createRoom,
   expiry,
   hashCredential,
@@ -55,7 +57,7 @@ export class Room extends DurableObject<Env> {
       // Hibernation restores sockets; a restart that loses them must not leave
       // persisted players permanently marked as connected.
       if (this.room) {
-        let changed = false;
+        let changed = upgradeRoom(this.room);
         for (const player of this.room.players) {
           if (player.connected && !this.sockets(player.id).length) {
             player.connected = false;
@@ -90,13 +92,13 @@ export class Room extends DurableObject<Env> {
   }
   private broadcast() {
     if (!this.room) return;
-    const room = publicRoom(this.room);
+
     for (const ws of this.sockets()) {
       const a = ws.deserializeAttachment() as Attachment;
       if (a.playerId)
         this.send(ws, {
           type: "state",
-          room,
+          room: publicRoom(this.room, a.playerId),
           playerId: a.playerId,
           serverTime: Date.now(),
         });
@@ -109,8 +111,13 @@ export class Room extends DurableObject<Env> {
   private async scheduleAlarm() {
     if (!this.room) return;
     const deadlines = [expiry(this.room)];
+    if (
+      this.room.quiz?.deadline !== null &&
+      this.room.quiz?.deadline !== undefined
+    )
+      deadlines.push(this.room.quiz.deadline);
     for (const p of this.room.players)
-      if (!p.connected && p.disconnectedAt !== null)
+      if (!p.connected && !p.graceExpired && p.disconnectedAt !== null)
         deadlines.push(p.disconnectedAt + DISCONNECT_GRACE_MS);
     for (const ws of this.sockets()) {
       const a = ws.deserializeAttachment() as Attachment;
@@ -137,6 +144,7 @@ export class Room extends DurableObject<Env> {
       }
     }
     pruneDisconnected(this.room, now);
+    advanceQuiz(this.room, now);
     if (now >= expiry(this.room) || this.room.players.length === 0) {
       for (const ws of this.sockets()) ws.close(4004, "A szoba lejárt.");
       this.room = null;
@@ -334,6 +342,8 @@ export class Room extends DurableObject<Env> {
           ws.serializeAttachment(a);
           player.connected = true;
           player.disconnectedAt = null;
+          player.graceExpired = false;
+          if (!this.room.hostId) this.room.hostId = player.id;
           this.room.revision++;
           this.room.lastActivityAt = now;
           await this.persist();
@@ -379,6 +389,8 @@ export class Room extends DurableObject<Env> {
           await this.cleanup(now);
         }
       } catch (error) {
+        await this.persist();
+        this.broadcast();
         const e =
           error instanceof RoomError
             ? error

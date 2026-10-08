@@ -77,7 +77,7 @@ export const DISCONNECT_GRACE_MS = 90_000;
 export const ROOM_IDLE_MS = 2 * 60 * 60 * 1000;
 export const ROOM_MAX_MS = 24 * 60 * 60 * 1000;
 export const CODE_PATTERN = /^[A-HJ-NP-Z2-9]{7}$/;
-// Future phases are a contract; only lobby and session are implemented in this milestone.
+// Sabotage phases remain reserved for PR #3.
 export type GamePhase =
   | "lobby"
   | "session"
@@ -87,7 +87,8 @@ export type GamePhase =
   | "question"
   | "results"
   | "leaderboard"
-  | "finale";
+  | "finale"
+  | "final-results";
 export interface Player {
   id: string;
   nickname: string;
@@ -109,13 +110,18 @@ export interface PublicRoom {
   createdAt: number;
   expiresAt: number;
   session: { id: string; startedAt: number } | null;
+  game: PublicGame | null;
+  notice: string | null;
 }
 export type Action =
   | { type: "ready"; value: boolean; settingsRevision: number }
   | { type: "character"; value: CharacterId }
   | { type: "settings"; value: Settings }
   | { type: "start"; settingsRevision: number }
-  | { type: "leave" };
+  | { type: "leave" }
+  | ({ type: "vote"; categoryId: string } & PhaseContext)
+  | ({ type: "answer"; optionIndex: number } & PhaseContext)
+  | { type: "rematch"; sessionId: string; phaseId: string };
 export type ServerMessage =
   | { type: "state"; room: PublicRoom; playerId: string; serverTime: number }
   | { type: "ack"; requestId: string }
@@ -133,7 +139,7 @@ export type Question = {
   categoryId: string;
   difficulty: Difficulty;
   prompt: string;
-  explanation: string;
+  explanation?: string;
 } & (
   | { type: "text"; options: string[]; correctIndex: number }
   | {
@@ -145,3 +151,90 @@ export type Question = {
     }
   | { type: "true-false"; correct: boolean }
 );
+
+export const CATEGORIES = [
+  { id: "geography", name: "Földrajz", icon: "🌍" },
+  { id: "history", name: "Történelem", icon: "🏛️" },
+  { id: "film", name: "Filmek és sorozatok", icon: "🎬" },
+  { id: "music", name: "Zene", icon: "🎵" },
+  { id: "science", name: "Tudomány", icon: "🔬" },
+  { id: "animals", name: "Állatvilág", icon: "🐾" },
+  { id: "food", name: "Gasztronómia", icon: "🍴" },
+  { id: "sport", name: "Sport", icon: "🏅" },
+  { id: "games", name: "Videójátékok", icon: "🎮" },
+  { id: "hungary", name: "Magyarország", icon: "🇭🇺" },
+  { id: "culture", name: "Popkultúra", icon: "✨" },
+  { id: "mixed", name: "Vegyes érdekességek", icon: "💡" },
+] as const;
+export const GAME_TIMING = {
+  vote: 8000,
+  question: 15000,
+  results: 4000,
+  leaderboard: 4000,
+  finale: 2000,
+} as const;
+export const FINALE_LENGTH: Record<QuestionCount, number> = {
+  6: 2,
+  12: 3,
+  18: 4,
+};
+export interface PhaseContext {
+  sessionId: string;
+  phaseId: string;
+  round: number;
+}
+export interface PublicQuestion {
+  id: string;
+  categoryId: string;
+  type: Question["type"];
+  prompt: string;
+  options: string[];
+  image?: { url: string; alt: string };
+}
+export interface MatchPlayer {
+  id: string;
+  nickname: string;
+  character: CharacterId;
+  joinedAt: number;
+  score: number;
+  correctAnswers: number;
+  answeredQuestions: number;
+  responseTimeTotalMs: number;
+  left: boolean;
+}
+export interface Ranking extends MatchPlayer {
+  rank: number;
+  previousRank: number;
+  connected: boolean;
+}
+export interface AnswerResult {
+  playerId: string;
+  optionIndex: number | null;
+  correct: boolean;
+  basePoints: number;
+  speedBonus: number;
+  multiplier: 1 | 2;
+  total: number;
+  responseTimeMs: number | null;
+}
+export interface RoundResult {
+  correctIndex: number;
+  explanation: string | null;
+  players: AnswerResult[];
+}
+export interface PublicGame extends PhaseContext {
+  startedAt: number;
+  deadline: number | null;
+  totalQuestions: QuestionCount;
+  isFinale: boolean;
+  categoryOptions: string[];
+  categoryId: string | null;
+  voteCounts: Record<string, number>;
+  myVote: string | null;
+  question: PublicQuestion | null;
+  myAnswer: number | null;
+  answeredPlayerIds: string[];
+  result: RoundResult | null;
+  ranking: Ranking[];
+}
+export const categoryById = (id: string) => CATEGORIES.find((c) => c.id === id);

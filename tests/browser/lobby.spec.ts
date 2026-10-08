@@ -70,20 +70,12 @@ test("two real browsers create, join, synchronize, refresh, transfer host and st
   ).toBeEnabled();
   await guest.getByRole("button", { name: "Indulhat a játék!" }).click();
   for (const page of [host, guest]) {
-    await expect(
-      page.getByRole("heading", { name: "Megérkeztetek!" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        "Ebben a verzióban még nincsenek kérdések vagy pontszámok.",
-      ),
-    ).toBeVisible();
+    await expect(page.locator('[data-phase="category-vote"]')).toBeVisible();
+    await expect(page.locator(".vote-card")).toHaveCount(3);
   }
   await host.reload();
-  await expect(
-    host.getByRole("heading", { name: "Megérkeztetek!" }),
-  ).toBeVisible();
-  await expect(host.locator(".players li")).toHaveCount(2);
+  await expect(host.locator('[data-phase="category-vote"]')).toBeVisible();
+  await expect(host.locator(".vote-card")).toHaveCount(3);
   for (const page of [host, guest])
     expect(
       await page.evaluate(

@@ -8,6 +8,7 @@ export type Connection =
   "connecting" | "online" | "reconnecting" | "offline" | "expired" | "replaced";
 export interface Callbacks {
   state: (room: PublicRoom, playerId: string) => void;
+  clock: (offset: number) => void;
   connection: (state: Connection) => void;
   error: (message: string) => void;
 }
@@ -19,6 +20,12 @@ export class RoomConnection {
   private heartbeat?: ReturnType<typeof setInterval>;
   private handshake?: ReturnType<typeof setTimeout>;
   private lastMessage = 0;
+  private pingSentAt = 0;
+  private clockReady = false;
+  private ping() {
+    this.pingSentAt = Date.now();
+    this.ws?.send(JSON.stringify({ type: "ping" }));
+  }
   private pending = new Map<
     string,
     {
@@ -40,7 +47,7 @@ export class RoomConnection {
     if (document.visibilityState !== "visible" || this.stopped) return;
     if (this.ws?.readyState === WebSocket.OPEN) {
       if (Date.now() - this.lastMessage > 60_000) this.ws.close();
-      else this.ws.send(JSON.stringify({ type: "ping" }));
+      else this.ping();
     } else {
       clearTimeout(this.retryTimer);
       this.connect();
@@ -59,6 +66,7 @@ export class RoomConnection {
       location.href,
     );
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    this.clockReady = false;
     const ws = (this.ws = new WebSocket(url));
     this.handshake = setTimeout(() => ws.close(), 12_000);
     ws.onopen = () => {
@@ -88,6 +96,11 @@ export class RoomConnection {
         clearTimeout(this.handshake);
         this.retries = 0;
         this.callbacks.connection("online");
+        if (!this.clockReady) {
+          this.callbacks.clock(message.serverTime - Date.now());
+          this.clockReady = true;
+          this.ping();
+        }
         this.callbacks.state(message.room, message.playerId);
         if (!this.heartbeat)
           this.heartbeat = setInterval(() => {
@@ -95,9 +108,13 @@ export class RoomConnection {
               ws.close();
               return;
             }
-            if (ws.readyState === WebSocket.OPEN)
-              ws.send(JSON.stringify({ type: "ping" }));
+            if (ws.readyState === WebSocket.OPEN) this.ping();
           }, 20_000);
+      } else if (message.type === "pong" && this.pingSentAt) {
+        this.callbacks.clock(
+          message.serverTime - (this.pingSentAt + Date.now()) / 2,
+        );
+        this.pingSentAt = 0;
       } else if (message.type === "ack") this.finish(message.requestId);
       else if (message.type === "error") {
         if (message.requestId) this.finish(message.requestId, message.message);
