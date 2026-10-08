@@ -41,7 +41,7 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
     await host.getByRole("button", { name: "Szoba létrehozása" }).click();
     await expect(host.getByText("Élő kapcsolat")).toBeVisible();
     await guest.goto(host.url());
-    await guest.getByLabel("Beceneved").fill("Kihívó");
+    await guest.getByLabel("Beceneved").fill("ŐrültSzabotázsmester");
     await guest.getByRole("button", { name: "Belépek a szobába" }).click();
     await expect(guest.getByText("Élő kapcsolat")).toBeVisible();
     await host.getByRole("button", { name: "6", exact: true }).click();
@@ -118,7 +118,7 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
         });
       const selectedAbilities: AbilityId[] = [];
       for (const [key, page, opponent] of [
-        ["host", host, "Kihívó"],
+        ["host", host, "ŐrültSzabotázsmester"],
         ["guest", guest, "Kvízmester"],
       ] as const) {
         const offers = snapshots[key]!.game!.sabotage!.offers;
@@ -132,9 +132,14 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
           .click();
         await expect(page.locator(".ability-card")).toHaveCount(0);
         await expect(page.locator(".target-card")).toHaveCount(1);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
         await expect(
           page.getByRole("button", {
-            name: `Célpont: ${key === "host" ? "Kvízmester" : "Kihívó"}`,
+            name: `Célpont: ${key === "host" ? "Kvízmester" : "ŐrültSzabotázsmester"}`,
           }),
         ).toHaveCount(0);
         if (round === 1 && key === "host") {
@@ -163,6 +168,11 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
             page.getByRole("heading", { name: "Támadás rögzítve!" }),
           ).toBeVisible();
           expect(snapshots.guest!.game!.sabotage!.incoming).toEqual([]);
+          expect(
+            await page.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+          ).toBe(true);
           if (round === 1) {
             const choice = snapshots.host!.game!.sabotage!.myChoice;
             await host.reload();

@@ -2011,6 +2011,7 @@ footer span {
 .attack-waiting {
   text-align: center;
   padding: 24px 0;
+  overflow-wrap: anywhere;
 }
 .attack-waiting .game-subtitle {
   margin-top: 18px;
@@ -2026,6 +2027,7 @@ footer span {
 .attack-report {
   font-size: 14px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .attack-reveal h1 {
   margin-top: 24px;
