@@ -105,15 +105,16 @@ export interface PublicRoom {
   hostId: string;
   players: Player[];
   settings: Settings;
+  settingsRevision: number;
   createdAt: number;
   expiresAt: number;
   session: { id: string; startedAt: number } | null;
 }
 export type Action =
-  | { type: "ready"; value: boolean }
+  | { type: "ready"; value: boolean; settingsRevision: number }
   | { type: "character"; value: CharacterId }
   | { type: "settings"; value: Settings }
-  | { type: "start" }
+  | { type: "start"; settingsRevision: number }
   | { type: "leave" };
 export type ServerMessage =
   | { type: "state"; room: PublicRoom; playerId: string; serverTime: number }

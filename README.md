@@ -25,7 +25,7 @@ React + TypeScript + Vite provide the UI. A Cloudflare Worker serves the built a
 - `src/server/index.ts`: HTTP routes, same-origin protection, request limits and asset headers.
 - `tests`: room rules, actual Workers-runtime integration and two-browser functional checks.
 
-No Tavern Tales systems were reused: the apparent `zsdaniel105/tavern-tales` repository was unavailable, and repository discovery through the GitHub API was also denied in the implementation environment. Its actual path/architecture was not verified. No Tavern Tales files were modified.
+Read-only reference inspection covered [`zsdaniel105/Tavern-Table`](https://github.com/zsdaniel105/Tavern-Table), whose README calls the game Dicey Dummies and whose Worker is named `tavern-tales`. Its authoritative room, typed-action, public-snapshot and alarm patterns support the approach used here. Its settings-revision safeguard was adapted to prevent stale ready/start actions after a host setting change. Észvesztő has independent source, artwork representations, room credentials and gameplay contracts. No reference repository files were modified. See [the reference notes](docs/reference-notes.md).
 
 ## Cloudflare deployment through GitHub
 

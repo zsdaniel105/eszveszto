@@ -65,26 +65,56 @@ describe("authoritative room rules", () => {
   });
   it("requires all players including the host to be connected and ready", () => {
     const { room, host, guest } = fixture();
-    expect(() => applyAction(room, host.id, { type: "start" }, now)).toThrow(
-      "késznek",
+    expect(() =>
+      applyAction(
+        room,
+        host.id,
+        { type: "start", settingsRevision: room.settingsRevision },
+        now,
+      ),
+    ).toThrow("késznek");
+    applyAction(
+      room,
+      host.id,
+      { type: "ready", value: true, settingsRevision: room.settingsRevision },
+      now,
     );
-    applyAction(room, host.id, { type: "ready", value: true }, now);
-    applyAction(room, guest.id, { type: "ready", value: true }, now);
+    applyAction(
+      room,
+      guest.id,
+      { type: "ready", value: true, settingsRevision: room.settingsRevision },
+      now,
+    );
     guest.connected = false;
-    expect(() => applyAction(room, host.id, { type: "start" }, now)).toThrow(
-      "kapcsolódnia",
-    );
+    expect(() =>
+      applyAction(
+        room,
+        host.id,
+        { type: "start", settingsRevision: room.settingsRevision },
+        now,
+      ),
+    ).toThrow("kapcsolódnia");
     guest.connected = true;
-    applyAction(room, host.id, { type: "start" }, now);
+    applyAction(
+      room,
+      host.id,
+      { type: "start", settingsRevision: room.settingsRevision },
+      now,
+    );
     expect(room.phase).toBe("session");
     expect(room.session?.startedAt).toBe(now);
   });
   it("rejects a single-player start", () => {
     const { room, host, guest } = fixture();
     applyAction(room, guest.id, { type: "leave" }, now);
-    expect(() => applyAction(room, host.id, { type: "start" }, now)).toThrow(
-      "két",
-    );
+    expect(() =>
+      applyAction(
+        room,
+        host.id,
+        { type: "start", settingsRevision: room.settingsRevision },
+        now,
+      ),
+    ).toThrow("két");
   });
   it("does not allow a guest to configure or start", () => {
     const { room, guest } = fixture();
@@ -96,9 +126,14 @@ describe("authoritative room rules", () => {
         now,
       ),
     ).toThrow("házigazda");
-    expect(() => applyAction(room, guest.id, { type: "start" }, now)).toThrow(
-      "házigazda",
-    );
+    expect(() =>
+      applyAction(
+        room,
+        guest.id,
+        { type: "start", settingsRevision: room.settingsRevision },
+        now,
+      ),
+    ).toThrow("házigazda");
   });
   it("resets readiness after settings and cosmetic character changes", () => {
     const { room, host, guest } = fixture();
@@ -129,9 +164,23 @@ describe("authoritative room rules", () => {
   it("locks lobby changes and new joins after start, but permits reconnects", () => {
     const { room, host, guest } = fixture();
     host.ready = guest.ready = true;
-    applyAction(room, host.id, { type: "start" }, now);
+    applyAction(
+      room,
+      host.id,
+      { type: "start", settingsRevision: room.settingsRevision },
+      now,
+    );
     expect(() =>
-      applyAction(room, guest.id, { type: "ready", value: false }, now),
+      applyAction(
+        room,
+        guest.id,
+        {
+          type: "ready",
+          value: false,
+          settingsRevision: room.settingsRevision,
+        },
+        now,
+      ),
     ).toThrow("elindult");
     expect(() =>
       joinRoom(room, makePlayer("Új játékos", "paca", "new", now)),
@@ -168,7 +217,12 @@ describe("authoritative room rules", () => {
   it("rejects arbitrary identity and validates all incoming fields", () => {
     const { room } = fixture();
     expect(() =>
-      applyAction(room, "forged-id", { type: "start" }, now),
+      applyAction(
+        room,
+        "forged-id",
+        { type: "start", settingsRevision: room.settingsRevision },
+        now,
+      ),
     ).toThrow("megszakadt");
     for (const name of ["", "a", "<script>", "a".repeat(21), "x\u0000y"])
       expect(() => validateNickname(name)).toThrow();
@@ -186,5 +240,40 @@ describe("authoritative room rules", () => {
     expect(expiry(room)).toBe(room.lastActivityAt + ROOM_IDLE_MS);
     room.lastActivityAt = now + ROOM_MAX_MS;
     expect(expiry(room)).toBe(now + ROOM_MAX_MS);
+  });
+  it("rejects readiness and start actions based on obsolete settings", () => {
+    const { room, host, guest } = fixture();
+    const oldRevision = room.settingsRevision;
+    applyAction(
+      room,
+      host.id,
+      { type: "settings", value: { questionCount: 6, difficulty: "easy" } },
+      now,
+    );
+    expect(room.settingsRevision).toBe(oldRevision + 1);
+    expect(() =>
+      applyAction(
+        room,
+        guest.id,
+        { type: "ready", value: true, settingsRevision: oldRevision },
+        now,
+      ),
+    ).toThrow("megváltoztak");
+    expect(guest.ready).toBe(false);
+    expect(() =>
+      applyAction(
+        room,
+        host.id,
+        { type: "start", settingsRevision: oldRevision },
+        now,
+      ),
+    ).toThrow("megváltoztak");
+    applyAction(
+      room,
+      guest.id,
+      { type: "ready", value: true, settingsRevision: room.settingsRevision },
+      now,
+    );
+    expect(guest.ready).toBe(true);
   });
 });

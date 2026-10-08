@@ -75,16 +75,29 @@ export function parseAction(value: unknown): Action {
   switch (a.type) {
     case "ready":
       if (typeof a.value !== "boolean") break;
-      return { type: "ready", value: a.value };
+      return {
+        type: "ready",
+        value: a.value,
+        settingsRevision: validateRevision(a.settingsRevision),
+      };
     case "character":
       return { type: "character", value: validateCharacter(a.value) };
     case "settings":
       return { type: "settings", value: validateSettings(a.value) };
     case "start":
+      return {
+        type: "start",
+        settingsRevision: validateRevision(a.settingsRevision),
+      };
     case "leave":
-      return { type: a.type };
+      return { type: "leave" };
   }
   throw new RoomError("INVALID_ACTION", "Ez a művelet nem érhető el.");
+}
+function validateRevision(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
+    throw new RoomError("INVALID_INPUT", "Hiányzó vagy hibás beállításverzió.");
+  return value;
 }
 export function expiry(room: StoredRoom): number {
   return Math.min(
@@ -100,6 +113,7 @@ export function publicRoom(room: StoredRoom): PublicRoom {
     revision: room.revision,
     hostId: room.hostId,
     settings: room.settings,
+    settingsRevision: room.settingsRevision,
     createdAt: room.createdAt,
     expiresAt: expiry(room),
     session: room.session,
@@ -139,6 +153,7 @@ export function createRoom(
     hostId: player.id,
     players: [player],
     settings: { ...DEFAULT_SETTINGS },
+    settingsRevision: 1,
     createdAt: now,
     lastActivityAt: now,
     session: null,
@@ -237,6 +252,16 @@ export function applyAction(
         403,
       );
   }
+  if (
+    (action.type === "start" || (action.type === "ready" && action.value)) &&
+    action.settingsRevision !== room.settingsRevision
+  ) {
+    throw new RoomError(
+      "SETTINGS_CHANGED",
+      "A játékbeállítások megváltoztak. Nézd át, és jelezd újra, hogy kész vagy!",
+      409,
+    );
+  }
   switch (action.type) {
     case "ready":
       player.ready = action.value;
@@ -247,6 +272,7 @@ export function applyAction(
       break;
     case "settings":
       room.settings = action.value;
+      room.settingsRevision++;
       room.players.forEach((p) => {
         p.ready = false;
       });

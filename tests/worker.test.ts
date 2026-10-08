@@ -49,6 +49,7 @@ async function create() {
 }
 class Inbox {
   messages: ServerMessage[] = [];
+  settingsRevision = 1;
   private waiters: {
     match: (m: ServerMessage) => boolean;
     resolve: (m: ServerMessage) => void;
@@ -56,6 +57,8 @@ class Inbox {
   constructor(public ws: WebSocket) {
     ws.addEventListener("message", (event) => {
       const message = JSON.parse(event.data as string) as ServerMessage;
+      if (message.type === "state")
+        this.settingsRevision = message.room.settingsRevision;
       const index = this.waiters.findIndex((w) => w.match(message));
       if (index >= 0) this.waiters.splice(index, 1)[0].resolve(message);
       else this.messages.push(message);
@@ -85,7 +88,11 @@ class Inbox {
   }
   async action(action: Record<string, unknown>) {
     const requestId = crypto.randomUUID();
-    this.send({ ...action, requestId });
+    this.send({
+      ...action,
+      settingsRevision: this.settingsRevision,
+      requestId,
+    });
     return this.next(
       (m) =>
         (m.type === "ack" || m.type === "error") && m.requestId === requestId,
@@ -171,12 +178,19 @@ describe("real Worker and Durable Object transport", () => {
       type: "settings",
       value: { questionCount: 18, difficulty: "hard" },
     });
+    await guest.next(
+      (m) => m.type === "state" && m.room.settingsRevision === 2,
+    );
     await Promise.all([
       host.action({ type: "ready", value: true }),
       guest.action({ type: "ready", value: true }),
     ]);
     const requestId = crypto.randomUUID();
-    host.send({ type: "start", requestId });
+    host.send({
+      type: "start",
+      requestId,
+      settingsRevision: host.settingsRevision,
+    });
     expect(
       (await host.next((m) => m.type === "ack" && m.requestId === requestId))
         .type,
@@ -192,7 +206,11 @@ describe("real Worker and Durable Object transport", () => {
     );
     expect(JSON.stringify(a)).not.toContain(room.token);
     expect(JSON.stringify(b)).not.toContain(token);
-    host.send({ type: "start", requestId });
+    host.send({
+      type: "start",
+      requestId,
+      settingsRevision: host.settingsRevision,
+    });
     expect(
       (await host.next((m) => m.type === "ack" && m.requestId === requestId))
         .type,

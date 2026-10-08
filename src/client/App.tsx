@@ -482,12 +482,18 @@ function RoomView({
     transport.start();
     return () => transport.stop();
   }, [session]);
-  async function act(action: Action) {
+  async function act(
+    action: Action | { type: "ready"; value: boolean } | { type: "start" },
+  ) {
     if (busy) return;
     setBusy(true);
     setError("");
     try {
-      await client.current?.send(action);
+      const request: Action =
+        action.type === "ready" || action.type === "start"
+          ? { ...action, settingsRevision: room?.settingsRevision ?? 0 }
+          : action;
+      await client.current?.send(request);
       if (action.type === "leave") onExit();
     } catch (e) {
       setError(e instanceof Error ? e.message : "A művelet nem sikerült.");
