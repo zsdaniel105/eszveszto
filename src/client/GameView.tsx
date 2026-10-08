@@ -1,9 +1,10 @@
+import { useGameViewport } from "./useGameViewport";
+import { CharacterPortrait } from "./CharacterPortrait";
 import { SabotageSelection, AttackSummary } from "./SabotageView";
 import { QuestionEffects } from "./QuestionEffects";
 import { useEffect, useState } from "react";
 import {
   categoryById,
-  characterById,
   type Action,
   type PublicRoom,
   type Ranking,
@@ -23,18 +24,14 @@ function Ranks({
   return (
     <ol className="rank-list">
       {players.map((p) => {
-        const c = characterById(p.character);
         const delta = p.previousRank - p.rank;
         return (
-          <li key={p.id} className={p.id === me ? "is-me" : ""}>
+          <li
+            key={p.id}
+            className={`${p.id === me ? "is-me" : ""} ${delta > 0 ? "rank-up" : delta < 0 ? "rank-down" : ""}`}
+          >
             <b className="rank-number">{p.rank}.</b>
-            <span
-              className="avatar"
-              style={{ background: c.color }}
-              aria-hidden="true"
-            >
-              {c.icon}
-            </span>
+            <CharacterPortrait character={p.character} />
             <div className="rank-person">
               <strong>
                 {p.nickname}
@@ -85,6 +82,7 @@ export function GameView({
   storageWarning: boolean;
   onAction: (action: Action) => Promise<void>;
 }) {
+  useGameViewport();
   const game = room.game!;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -137,7 +135,13 @@ export function GameView({
           lehet szükség.
         </div>
       )}
-      <section className="game-card" data-phase={room.phase}>
+      <section
+        key={game.phaseId}
+        className="game-card"
+        data-phase={room.phase}
+        tabIndex={0}
+        aria-label="Játékterület"
+      >
         {room.phase !== "final-results" && (
           <div className="phase-meta">
             <span>

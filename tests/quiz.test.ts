@@ -57,12 +57,12 @@ function open(room: ReturnType<typeof fixture>["room"]) {
 }
 
 describe("question bank and selection", () => {
-  it("contains 120 unique structurally valid published questions, ten per category", () => {
-    expect(QUESTIONS).toHaveLength(120);
+  it("contains 312 unique structurally valid published questions, 26 per category", () => {
+    expect(QUESTIONS).toHaveLength(312);
     expect(() => validateBank(QUESTIONS)).not.toThrow();
     expect(availableCategories([])).toHaveLength(12);
     for (const cat of availableCategories([]))
-      expect(QUESTIONS.filter((q) => q.categoryId === cat)).toHaveLength(10);
+      expect(QUESTIONS.filter((q) => q.categoryId === cat)).toHaveLength(26);
   });
   it("rejects duplicate IDs, duplicate options and invalid answer indexes", () => {
     expect(() => validateBank([...QUESTIONS, QUESTIONS[0]])).toThrow();
@@ -77,7 +77,7 @@ describe("question bank and selection", () => {
     expect(
       availableCategories(
         QUESTIONS.filter((q) => q.categoryId === "geography")
-          .slice(0, 8)
+          .slice(0, 24)
           .map((q) => q.id),
       ),
     ).not.toContain("geography");

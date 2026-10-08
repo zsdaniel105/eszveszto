@@ -1,3 +1,6 @@
+import { SoundControl } from "./SoundControl";
+import { useRoomSounds } from "./useRoomSounds";
+import { CharacterPortrait } from "./CharacterPortrait";
 import { GameView } from "./GameView";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
@@ -91,14 +94,13 @@ function CharacterPicker({
           <button
             key={c.id}
             type="button"
+            data-ui-sound
             className={`character-card ${value === c.id ? "selected" : ""}`}
             aria-pressed={value === c.id}
             onClick={() => onChange(c.id)}
             style={{ "--character-color": c.color } as CSSProperties}
           >
-            <span className="character-icon" aria-hidden="true">
-              {c.icon}
-            </span>
+            <CharacterPortrait character={c.id} className="character-icon" />
             <span>{c.name}</span>
             {value === c.id && (
               <span className="selected-mark" aria-hidden="true">
@@ -142,7 +144,8 @@ export function App() {
           <Logo small />
         </button>
         <span className="top-label">TUDÁS. TRÉFA. KÁOSZ.</span>
-        <span className="edition">HARMADIK FELVONÁS</span>
+        <SoundControl />
+        <span className="edition">NEGYEDIK FELVONÁS</span>
       </header>
       {route.view === "home" ? (
         <Home onNavigate={navigate} />
@@ -470,6 +473,7 @@ function RoomView({
   const [editingCharacter, setEditingCharacter] = useState(false);
   const [copied, setCopied] = useState(false);
   const [manualCopy, setManualCopy] = useState(false);
+  useRoomSounds(room, playerId);
   const client = useRef<RoomConnection | null>(null);
   useEffect(() => {
     const transport = new RoomConnection(session, {
@@ -637,13 +641,7 @@ function RoomView({
                 const c = characterById(p.character);
                 return (
                   <li key={p.id} className={!p.connected ? "disconnected" : ""}>
-                    <span
-                      className="avatar"
-                      style={{ background: c.color }}
-                      aria-hidden="true"
-                    >
-                      {c.icon}
-                    </span>
+                    <CharacterPortrait character={p.character} />
                     <div className="player-name">
                       <strong>
                         {p.nickname} {p.id === playerId && <small>(te)</small>}

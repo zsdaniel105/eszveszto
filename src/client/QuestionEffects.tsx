@@ -144,6 +144,7 @@ export function QuestionEffects({
           {view.order.map((index) => (
             <button
               key={index}
+              data-ui-sound
               className={`answer-card ${myAnswer === index ? "selected" : ""}`}
               disabled={disabled || myAnswer !== null}
               aria-disabled={view.locked || disabled || myAnswer !== null}

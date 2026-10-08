@@ -1,5 +1,6 @@
+import { CharacterPortrait } from "./CharacterPortrait";
 import { useState, type CSSProperties } from "react";
-import { characterById, type Action, type PublicGame } from "../shared/game";
+import { type Action, type PublicGame } from "../shared/game";
 import { abilityById, type AbilityId } from "../shared/sabotage";
 export function SabotageSelection({
   game,
@@ -67,6 +68,7 @@ export function SabotageSelection({
                 <button
                   key={id}
                   className="ability-card"
+                  data-ui-sound
                   disabled={disabled}
                   style={{ "--ability-color": a.color } as CSSProperties}
                   onClick={() => setSelected(id)}
@@ -100,11 +102,11 @@ export function SabotageSelection({
           </p>
           <div className="target-options">
             {s.targets.map((p) => {
-              const c = characterById(p.character);
               return (
                 <button
                   key={p.id}
                   className="target-card"
+                  data-ui-sound
                   aria-label={`Célpont: ${p.nickname}`}
                   disabled={disabled}
                   onClick={() =>
@@ -116,13 +118,7 @@ export function SabotageSelection({
                     })
                   }
                 >
-                  <span
-                    className="avatar"
-                    style={{ background: c.color }}
-                    aria-hidden="true"
-                  >
-                    {c.icon}
-                  </span>
+                  <CharacterPortrait character={p.character} />
                   <strong>{p.nickname}</strong>
                   <small>{p.connected ? "Ő kapja!" : "Visszavárjuk"}</small>
                 </button>
