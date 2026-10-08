@@ -2275,3 +2275,285 @@ footer span {
     transition: none !important;
   }
 }
+
+/* Gameplay owns the viewport; only its deliberately bounded panel can pan.
+   No fixed body, universal touch-action:none, or zoom/text-selection suppression. */
+html[data-gameplay],
+body[data-gameplay] {
+  overflow: hidden;
+  overscroll-behavior: none;
+  height: 100%;
+}
+body[data-gameplay] .app {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  padding-top: max(6px, env(safe-area-inset-top));
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+}
+body[data-gameplay] .topbar {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding-block: 4px;
+}
+body[data-gameplay] .game-layout {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-block: 8px 0;
+}
+body[data-gameplay] .game-status {
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+}
+body[data-gameplay] .game-card {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  touch-action: pan-y pinch-zoom;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  scroll-padding-block: 64px 16px;
+  -webkit-overflow-scrolling: touch;
+}
+body[data-gameplay] .game-layout > .notice {
+  flex: 0 0 auto;
+  max-height: 25%;
+  overflow-y: auto;
+}
+body[data-gameplay] .game-layout > .leave {
+  flex: 0 0 auto;
+  min-height: 44px;
+  margin: 0;
+}
+body[data-gameplay] .phase-meta {
+  position: sticky;
+  top: -16px;
+  z-index: 3;
+  background: #fffdf6;
+  padding-block: 4px;
+}
+body[data-gameplay] .game-card:focus-visible {
+  outline: 3px solid var(--purple);
+  outline-offset: -5px;
+}
+body[data-gameplay] .question-prompt {
+  font-size: clamp(21px, 4.5vw, 32px);
+}
+body[data-gameplay] .timer {
+  min-width: 44px;
+  height: 44px;
+  font-size: 23px;
+}
+body[data-gameplay] .answer-status {
+  margin-block: 8px;
+}
+body[data-gameplay] .effect-status {
+  min-height: 26px;
+  padding-block: 3px;
+}
+body[data-gameplay] .effect-arena {
+  min-height: 280px;
+}
+
+.portrait {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  isolation: isolate;
+  background: transparent !important;
+}
+.portrait-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  overflow: visible;
+}
+.portrait-frame > path:first-child {
+  fill: var(--character-color);
+  stroke: #393344;
+  stroke-width: 2;
+}
+.portrait-glint {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+.portrait-glyph {
+  font-size: 0.7em;
+  line-height: 1;
+}
+.portrait-detail {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  font-size: 10px;
+  line-height: 14px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fffdf6;
+  border: 1px solid #393344;
+  color: #393344;
+  text-align: center;
+}
+.portrait[data-character="zum"] .portrait-frame {
+  transform: rotate(6deg);
+}
+.portrait[data-character="paca"] .portrait-frame {
+  transform: rotate(-6deg);
+}
+.portrait[data-character="rovidzarlat"] .portrait-detail {
+  border-radius: 2px;
+  background: #f6e4a4;
+}
+.portrait[data-character="galambkiraly"] .portrait-detail,
+.portrait[data-character="krumplibaro"] .portrait-detail {
+  background: #f6e4a4;
+}
+.character-icon.portrait {
+  width: 64px;
+  height: 64px;
+  font-size: 58px;
+  margin-inline: auto;
+}
+.avatar.portrait {
+  font-size: 38px;
+}
+.character-card.selected .portrait-frame > path:first-child {
+  stroke: var(--purple);
+  stroke-width: 4;
+}
+.players li:has(.ready-pill.ready) .portrait {
+  filter: drop-shadow(0 0 2px #77b99e);
+}
+
+/* Confirmation animations only: phase IDs and accepted server state trigger them. */
+body[data-gameplay] .game-card {
+  animation: phase-arrive 180ms ease-out;
+}
+.chosen-ability,
+.attack-waiting {
+  animation: phase-arrive 160ms ease-out;
+}
+.ability-card:focus-visible,
+.target-card:focus-visible {
+  outline: 3px solid var(--purple);
+  outline-offset: 2px;
+}
+.target-card:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.answer-card.selected {
+  animation: confirmed-pop 200ms ease-out;
+}
+.correct-answer,
+.earned,
+.winner-banner {
+  animation: confirmed-pop 320ms ease-out;
+}
+.rank-list .rank-up .rank-number {
+  color: #277557;
+}
+.rank-list .rank-down .rank-number {
+  color: #9a4b35;
+}
+.rank-list .rank-up {
+  animation: rank-arrive 250ms ease-out;
+}
+.finale-announcement {
+  animation: confirmed-pop 350ms ease-out;
+}
+@keyframes phase-arrive {
+  from {
+    opacity: 0.4;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes confirmed-pop {
+  0% {
+    transform: scale(0.97);
+  }
+  65% {
+    transform: scale(1.015);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes rank-arrive {
+  from {
+    transform: translateY(5px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@media (max-height: 500px) {
+  body[data-gameplay] .topbar {
+    min-height: 40px;
+  }
+  body[data-gameplay] .game-status {
+    margin-bottom: 4px;
+  }
+  body[data-gameplay] .game-card {
+    padding: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-gameplay] .game-card,
+  .chosen-ability,
+  .attack-waiting,
+  .answer-card.selected,
+  .correct-answer,
+  .earned,
+  .winner-banner,
+  .rank-list .rank-up,
+  .finale-announcement {
+    animation: none;
+    transition: none;
+  }
+}
+.sound-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px;
+  margin-left: auto;
+  background: #eee8fa;
+  border: 1px solid #c7bedf;
+  border-radius: 12px;
+  color: #41336d;
+}
+.sound-control > span {
+  font-size: 22px;
+}
+.sound-control small {
+  font-size: 11px;
+}
+.topbar .edition {
+  margin-left: 0;
+}
+@media (max-width: 600px) {
+  .sound-control {
+    margin-left: auto;
+  }
+  .topbar {
+    gap: 12px;
+  }
+}

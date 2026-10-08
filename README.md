@@ -1,6 +1,6 @@
 # Észvesztő ✳
 
-Magyar nyelvű, mobilra tervezett, böngészős kvízparti 2–8 barátnak. A harmadik mérföldkő valódi, célzott szabotázst ad a működő többjátékos kvízhez. Kategóriaszavazás, pontozás, ranglista, dupla pontos döntő és új parti továbbra is szervervezérelt.
+Magyar nyelvű, mobilra tervezett, böngészős kvízparti 2–8 barátnak. A negyedik mérföldkő rögzített mobil játékterületet, bővebb kérdésbankot és visszafogott képi/hangos visszajelzést ad a működő szabotázsos kvízhez. Kategóriaszavazás, pontozás, ranglista, dupla pontos döntő és új parti továbbra is szervervezérelt.
 
 ## Játszható funkciók
 
@@ -32,11 +32,11 @@ A helycserék kizárólag a megjelenítést módosítják: minden gomb ugyanazt 
 
 ## Kérdésbank és nehézség
 
-A szerveroldali `src/server/questions.ts` **120 magyar szöveges kérdést** tartalmaz: 12 kategória, kategóriánként 10 (3 könnyű, 4 közepes, 3 nehéz). Kategóriák: Földrajz, Történelem, Filmek és sorozatok, Zene, Tudomány, Állatvilág, Gasztronómia, Sport, Videójátékok, Magyarország, Popkultúra, Vegyes érdekességek.
+A szerveroldali `src/server/content/` **312 magyar szöveges kérdést** tartalmaz: 12 meglévő kategória, kategóriánként 26, mindhárom nehézségben legalább 5. Az eredeti 120 ID és helyes válasz megmaradt; 192 új kérdés készült. Kategóriák: Földrajz, Történelem, Filmek és sorozatok, Zene, Tudomány, Állatvilág, Gasztronómia, Sport, Videójátékok, Magyarország, Popkultúra, Vegyes érdekességek.
 
-Importáláskor automatikus strukturális ellenőrzés szükséges: egyedi ID és kérdésszöveg, ismert kategória és nehézség, négy különböző válasz, érvényes kulcs, publikálási állapot és HTTPS forrásmutató. A kérdésbank és megoldókulcs nem kerül a böngészőcsomagba. Csak a jelenlegi kérdés nyilvános része érkezik, megoldás kizárólag lezárás után. Nincs külső kérdés-API, élő AI vagy távoli képkérés.
+Importáláskor automatikus strukturális ellenőrzés szükséges: stabil, egyedi ID; normalizált egyedi kérdés és négy különböző válasz; kategória, nehézség, kulcs, magyarázat és eredetjelölés. Az azonos megoldású, erősen hasonló megfogalmazásokat szóhalmaz-alapú ellenőrzés jelzi. Ez nem szemantikai vagy tényellenőrzés. A bank és megoldókulcs nem kerül a böngészőcsomagba. Csak az aktuális kérdés nyilvános része érkezik, megoldás kizárólag lezárás után. Nincs külső kérdés-API, élő AI vagy távoli képkérés.
 
-Ez **kezdő tartalomkészlet**, nem függetlenül, ember által auditált adatbázis. A forrásmutatók témaköri szerkesztői kiindulópontok, nem minden kérdéshez ellenőrzött idézetek. A nehézség előzetes besorolás, nem játékosokkal mért kalibráció. A szerkezet automatikusan ellenőrzött; szélesebb publikálás előtt tételes tartalmi és nehézségi ellenőrzés ajánlott. A jelenlegi állapot ezt kifejezetten `automated-structure-only` jelöléssel tárolja.
+A korábbi bank nyelvi, egyértelműségi és nehézségi auditja, illetve az új kérdések szerkesztése modell által történt. **11 kérdés helyes válaszát ténylegesen lekért forrásszöveggel vetettük össze** (`source-checked-answer`); a többi `model-audited`. A `published` játékba engedett tartalmat jelent, nem emberi tanúsítást. Nem volt független emberi ellenőrzés vagy játékosokkal mért nehézségkalibráció. A hozzávetőleg 450-es célnál kisebb készletet választottunk a korlátozott forráselérés és a tartalmi minőség miatt. A pontos javítások, eloszlás és ellenőrzött források: [tartalmi audit](docs/content-review.md).
 
 A célzott háromkérdéses minták:
 
@@ -47,7 +47,7 @@ A célzott háromkérdéses minták:
 | Normál, második félidő | közepes, nehéz, nehéz   |
 | Nehéz                  | közepes, nehéz, nehéz   |
 
-A véletlen mintavétel a kiválasztott kategórián belül marad. Új parti esetén először a legfeljebb 60 megjegyzett korábbi kérdésen kívüli tartalom fogy; azon belül a kért nehézség. Ha nincs megfelelő szint, a dokumentált sorrend szerinti másik szint következik. Partin belül nincs ismétlődő kérdés-ID. Kategória csak legalább három felhasználatlan kérdéssel ajánlható fel; az új kategóriaajánlatok elsőbbséget kapnak, szükség esetén korábbi ajánlat ismétlődhet. Képes és igaz/hamis típusokra a modell és megjelenítés bővíthető, a jelenlegi publikált bank csak négyválaszos szöveges kérdéseket enged.
+A véletlen mintavétel a kiválasztott kategórián belül marad. Új parti esetén először a legfeljebb 180 megjegyzett korábbi kérdésen kívüli tartalom fogy; azon belül a kért nehézség. Ha nincs megfelelő szint, a dokumentált sorrend szerinti másik szint következik. Partin belül nincs ismétlődő kérdés-ID. Kategória csak legalább három felhasználatlan kérdéssel ajánlható fel; az új kategóriaajánlatok elsőbbséget kapnak, szükség esetén korábbi ajánlat ismétlődhet. Képes és igaz/hamis típusokra a modell és megjelenítés bővíthető, a jelenlegi publikált bank csak négyválaszos szöveges kérdéseket enged.
 
 ## Állapotgép és pontozás
 
@@ -56,6 +56,14 @@ A véletlen mintavétel a kiválasztott kategórián belül marad. Új parti ese
 A szerver menti a fázisazonosítót, munkamenetet, kört, határidőt, kérdésazonosítókat, kevert válaszsorrendet, zárolt válaszokat, korábbi helyezést és pontokat. A Durable Object az állapotváltozásokat sorosítja. Az alarm a fázishatáridő, szobalejárat, kapcsolatfigyelés és visszatérési türelmi idő közül a legkorábbira áll. Későn érkező alarm az eredeti határidőktől halad tovább, ugyanazt a kérdést egyszer pontozva. Nyitott böngésző nélkül is befejeződik a parti. A kliens a szerveridő és ping/pong alapján becsült óraeltéréssel rajzolja a visszaszámlálást; a válasz elfogadásáról a szerver dönt.
 
 A technikai alapértékek (szavazás 8, szabotázsválasztás 10, bemutató 1,5, kérdés 15, eredmény/ranglista 4/4, döntőbejelentés 2 másodperc, 2/3/4 döntőkérdés és gyorsasági képlet) e PR implementációs döntései. Helyes, időben beérkezett válasznál `e = floor((szerver_beérkezés − kérdéskezdés) / 1000)`, `bónusz = floor(50 × max(0, 14 − e) / 14)`, `pont = (100 + bónusz) × szorzó`. Így az első másodperc bónusza 50, az utolsóé 0; a szorzó a döntőben 2, egyébként 1. A teljes 15 másodperces határidőn vagy utána beérkező válasz már nem fogadható el. Nincs kliensidő-alapú vagy rejtett késleltetéskompenzáció; a hálózati út befolyásolja a fogadást, de másodperces pontozási sávok korlátozzák a finom időzítési különbségeket.
+
+## Mobil játékterület, karakterek és hang
+
+Játék közben a dokumentum nem görgethető; a `100dvh` (régi böngészőn `100vh`) magasságú nézetben a kérdés/fázis panelje tud belül görgetni. Rövid képernyőn, fekvő helyzetben vagy megnövelt szövegnél így mind a négy válasz, mindhárom képesség, hét célpont, kihagyás, eredmény, ranglista és új parti elérhető. Az állapot és kilépés a panelen kívül marad. A fókuszálható panel billentyűzettel is görgethető. Az előszoba, főoldal, űrlap és terminális kapcsolati hiba normál dokumentumgörgetést kap; a nézet elhagyása visszaállítja a korábbi jelölőket. Nincs általános érintéstiltás, a zoom és a tinta söprése megmarad.
+
+A nyolc kozmetikai karakter egységes `CharacterPortrait` felületet használ: saját könnyű vektorkeret, szín és részletjel az eddigi emoji mellett. Ez nem kész prémium illusztrációcsomag; később a komponens lecserélhető jóváhagyott saját képekre, ID-változtatás nélkül. Rövid fázis-, rögzített válasz-, valódi pont/helyezés- és győzelmi animációk, csökkentett mozgásnál kikapcsolva. Nem módosítják az időzítést vagy a játékszabályt.
+
+A fejléc Hang/Néma gombja a főoldaltól az új partiig elérhető. Egy központi Web Audio vezérlő szerény, saját szinuszhang-motívumokat szólaltat meg választásnál és tényleges szerveres készenlét/szavazás/fázis/eredmény/helyezés/döntő/győzelem esetén. Csak valódi felhasználói gesztus hozhat létre vagy indíthat újra hangkörnyezetet. A némítás ugyanazon eredet helyi tárában megmarad; tiltott tárnál csak az oldal életére. Rejtett lap felfüggeszti a hangot, visszatéréskor új gesztus kell. Ismételt állapot vagy frissítés nem ismétli a visszajelzést, nincs utólagos hangtorlódás, háttérzene vagy szükséges hanginformáció. Nem támogatott/tiltott lejátszás mellett a játék csendben működik tovább.
 
 ## Architektúra
 
@@ -66,12 +74,12 @@ React + TypeScript + Vite frontend, egyazon eredetű Cloudflare Worker API és a
 - `src/server/sabotage.ts`: ajánlatok, célpontellenőrzés, támadásnyilvántartás, összevonás és saját nyilvános állapot.
 - `src/client/SabotageView.tsx`, `QuestionEffects.tsx`: mobil választás/célzás és valódi interaktív hatások.
 - `src/shared/game.ts`: karakterek, beállítások, típusos protokoll és nyilvános játékadatok.
-- `src/server/questions.ts`: publikált kérdések, forrásmutatók és strukturális validálás.
+- `src/server/questions.ts`, `content/`: kategóriánkénti stabil ID-s kérdések, eredetjelölés és validálás.
 - `src/server/quiz.ts`: mintavétel, szavazás, határidők, pontozás, rangsorolás és új parti.
 - `src/server/model.ts`: szobaszabályok, bemenetvalidálás, régi állapot kompatibilis bővítése.
 - `src/server/room.ts`: tartós tárolás, WebSocket-hitelesítés és alarmok.
 - `src/server/index.ts`: HTTP, eredetellenőrzés, kéréskorlátok és assetfejlécek.
-- `tests`: szabálytesztek, valódi Workers futtatókörnyezet és kétböngészős teljes parti.
+- `tests`: szabálytesztek, valódi Workers futtatókörnyezet, hang/tartalom ellenőrzése és két-/nyolcböngészős teljes parti.
 
 Az első PR csak olvasásra vizsgálta a [`zsdaniel105/Tavern-Table`](https://github.com/zsdaniel105/Tavern-Table) mintáit (README: Dicey Dummies; Worker: tavern-tales). Észvesztő önálló forrást és tartalmat használ; a referenciaprojekt nem módosult. [Referenciajegyzetek](docs/reference-notes.md).
 
@@ -113,6 +121,10 @@ A böngészőrunner saját szervert indít/leállít; előtte ne fusson ugyanazo
 
 PR #3 ellenőrzése: **85 sikeres szabály- és Workers-teszt**, köztük valódi nyolcklienses forgatókönyv hét támadással ugyanarra a játékosra, újraküldéssel, rekonstruált Durable Objecttel és szerveroldali fagyasztással. **3 sikeres Chromium-böngészőteszt**, közte két független kliens hatkérdéses partija, szabotázs, helyes pontozás, döntő és új parti. ESLint, TypeScript, build és Wrangler deploy dry run ellenőrzendő minden kiadásnál; aktuális PR-ban ezek eredménye a PR leírásában is szerepel.
 
-Korlátok: a böngészős vizuális akadályok kliensoldali módosítással megkerülhetők; a szerver időzárát, válaszrögzítését és pontozását ez nem kerüli meg. Folttörlés a böngészőtár engedélyétől függ, távoli eszközre nem szinkronizált; az eredeti eltűnési idő minden esetben megmarad. Nagyon rövid kijelzőn, hosszú kérdésnél vagy hét célpontnál függőleges görgetés szükséges lehet; a tartalmat nem vágjuk le. A csökkentett mozgás kikapcsolja az erős animációt, de megtartja az azonos helycseréket, időzárakat és törlési interakciót. A véletlen ajánlatú böngészőteszt a ténylegesen kiosztott képességeket vizsgálja; minden képesség és maximális vegyes összhatás külön determinisztikus tesztet is kap.
+Korlátok: a böngészős vizuális akadályok kliensoldali módosítással megkerülhetők; a szerver időzárát, válaszrögzítését és pontozását ez nem kerüli meg. Folttörlés a böngészőtár engedélyétől függ, távoli eszközre nem szinkronizált; az eredeti eltűnési idő minden esetben megmarad. Nagyon rövid kijelzőn, hosszú kérdésnél vagy hét célpontnál belső panelgörgetés szükséges lehet; a tartalmat nem vágjuk le. A csökkentett mozgás kikapcsolja az erős animációt, de megtartja az azonos helycseréket, időzárakat és törlési interakciót. A véletlen ajánlatú böngészőteszt a ténylegesen kiosztott képességeket vizsgálja; minden képesség és maximális vegyes összhatás külön determinisztikus tesztet is kap.
 
-Következő ajánlott PR: tételes kérdésbank- és forrásellenőrzés, nehézségkalibráció, célzott mobil vizuális finomítás és valós játékosokkal a szabotázs alapértékeinek hangolása. Ezek jövőbeli feladatok, nem már megvalósult funkciók.
+## PR #4 kompatibilitás és ellenőrzés
+
+A tárolási séma továbbra is 3; új szerveres mező vagy migráció nincs. Futó régi kérdés ID-ja, mentett válaszsorrendje, megoldóindexe, válaszzárja és határideje megmarad. A hét pontosított régi kérdésszöveg ugyanarra a helyes válaszra vonatkozik. A korábbi kérdés-ID-történet mezője a következő új partinál legfeljebb 180 elemre bővül; normál fallback továbbra is működik. Worker/bindings/SQLite/preview izoláció változatlan; éles telepítést a PR nem indít.
+
+PR #4: 96 sikeres szabály-/Workers-teszt, 5 sikeres Chromium-teszt (két- és nyolcklienses teljes parti, hang), ESLint, TypeScript, build és Wrangler deploy dry run. [Tényleges képek](docs/screenshots/README.md); részletes eredmények a PR leírásában. A böngészőtesztek Chromium érintésemulációt használnak, nem fizikai iOS/Android készülékeket. A dinamikus böngészőcímsor, valódi iOS gumigörgetés és mobil hangpolitika készülékes ellenőrzése még szükséges. Következő ajánlott mérföldkő: független magyar tartalmi audit és további forrásellenőrzés, valós telefonos játékpróba/nehézségkalibráció, majd jóváhagyott saját karakter- és hangassetek.

@@ -303,11 +303,20 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
               () => document.documentElement.scrollWidth <= innerWidth,
             ),
           ).toBe(true);
+          expect(await host.evaluate(() => window.scrollY)).toBe(0);
+          expect(
+            await host.evaluate(
+              () => document.documentElement.scrollHeight <= innerHeight + 1,
+            ),
+          ).toBe(true);
           const buttons = await host
             .locator(".answer-card")
             .first()
             .boundingBox();
           expect(buttons!.height).toBeGreaterThanOrEqual(44);
+          await host.screenshot({
+            path: testInfo.outputPath(`question-${width}.png`),
+          });
         }
         await host.setViewportSize({ width: 390, height: 740 });
         await host.screenshot({
@@ -401,6 +410,10 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
       ).toBeVisible();
       await expect(page.locator(".players li")).toHaveCount(2);
       await expect(page.locator(".ready-pill.ready")).toHaveCount(0);
+      await expect(page.locator("body")).not.toHaveAttribute(
+        "data-gameplay",
+        "",
+      );
     }
     await host
       .getByRole("button", { name: "Készen állok!", exact: true })

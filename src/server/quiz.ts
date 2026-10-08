@@ -1,3 +1,5 @@
+// Bounded existing history field; no storage schema change is needed.
+export const RECENT_QUESTION_LIMIT = 180;
 import { SABOTAGE_BALANCE } from "../shared/sabotage";
 import {
   createSabotage,
@@ -473,7 +475,7 @@ export function quizAction(
       );
     room.recentQuestionIds = [
       ...new Set([...q.usedQuestionIds, ...room.recentQuestionIds]),
-    ].slice(0, 60);
+    ].slice(0, RECENT_QUESTION_LIMIT);
     room.players = room.players.filter((p) => !p.graceExpired);
     room.players.forEach((p) => {
       p.ready = false;
