@@ -196,10 +196,10 @@ describe("real Worker and Durable Object transport", () => {
         .type,
     ).toBe("ack");
     const a = await host.next(
-      (m) => m.type === "state" && m.room.phase === "session",
+      (m) => m.type === "state" && m.room.phase === "category-vote",
     );
     const b = await guest.next(
-      (m) => m.type === "state" && m.room.phase === "session",
+      (m) => m.type === "state" && m.room.phase === "category-vote",
     );
     expect(a.type === "state" && a.room.session).toEqual(
       b.type === "state" && b.room.session,
@@ -345,6 +345,180 @@ describe("real Worker and Durable Object transport", () => {
       ).toBe(401);
     },
   );
+  it("persists real answers across reconstruction, projects privately and finishes on alarms without clients", async () => {
+    const room = await create();
+    const token = credential();
+    await post(`/api/rooms/${room.code}/join`, {
+      nickname: "Vendég",
+      character: "zum",
+      credential: token,
+    });
+    let host = await connect(room.code, room.token);
+    await host.next(state);
+    const guest = await connect(room.code, token);
+    await guest.next(state);
+    await Promise.all([
+      host.action({ type: "ready", value: true }),
+      guest.action({ type: "ready", value: true }),
+    ]);
+    await host.action({ type: "start" });
+    const stub = bindings.ROOMS.get(bindings.ROOMS.idFromName(room.code));
+    async function expire(milliseconds = 1) {
+      await runInDurableObject(stub, async (_instance, ctx) => {
+        const stored = (await ctx.storage.get<StoredRoom>("room"))!;
+        stored.quiz!.deadline = Date.now() - milliseconds;
+        await ctx.storage.put("room", stored);
+      });
+      await evictDurableObject(stub);
+      await runDurableObjectAlarm(stub);
+    }
+    await expire();
+    const a = await host.next(
+      (m) => m.type === "state" && m.room.phase === "question",
+    );
+    const b = await guest.next(
+      (m) => m.type === "state" && m.room.phase === "question",
+    );
+    if (a.type !== "state" || b.type !== "state")
+      throw new Error("Missing quiz state");
+    expect(a.room.game!.question).toEqual(b.room.game!.question);
+    expect(JSON.stringify(a)).not.toContain("correctIndex");
+    const stored = (await runInDurableObject(stub, async (_instance, ctx) =>
+      ctx.storage.get<StoredRoom>("room"),
+    ))!;
+    const q = stored.quiz!;
+    const context = {
+      sessionId: q.sessionId,
+      phaseId: q.phaseId,
+      round: q.round,
+    };
+    const requestId = crypto.randomUUID();
+    host.send({
+      type: "answer",
+      optionIndex: q.correctIndex,
+      ...context,
+      requestId,
+    });
+    await host.next((m) => m.type === "ack" && m.requestId === requestId);
+    host.send({
+      type: "answer",
+      optionIndex: q.correctIndex,
+      ...context,
+      requestId,
+    });
+    await host.next((m) => m.type === "ack" && m.requestId === requestId);
+    const privateState = await guest.next(
+      (m) =>
+        m.type === "state" &&
+        m.room.game?.answeredPlayerIds.includes(room.playerId) === true,
+    );
+    expect(
+      privateState.type === "state" && privateState.room.game!.myAnswer,
+    ).toBeNull();
+    expect(JSON.stringify(privateState)).not.toContain("receivedAt");
+    await evictDurableObject(stub);
+    host = await connect(room.code, room.token);
+    const restored = await host.next(
+      (m) => m.type === "state" && m.playerId === room.playerId,
+    );
+    expect(restored.type === "state" && restored.room.game!.myAnswer).toBe(
+      q.correctIndex,
+    );
+    expect(
+      (
+        await host.action({
+          type: "answer",
+          optionIndex: q.correctIndex,
+          ...context,
+        })
+      ).type,
+    ).toBe("error");
+    await guest.action({
+      type: "answer",
+      optionIndex: (q.correctIndex + 1) % 4,
+      ...context,
+    });
+    const result = await host.next(
+      (m) => m.type === "state" && m.room.phase === "results",
+    );
+    if (result.type !== "state") throw new Error("Missing results");
+    const score = result.room.game!.ranking.find(
+      (p) => p.id === room.playerId,
+    )!.score;
+    expect(score).toBeGreaterThanOrEqual(100);
+    expect(result.room.game!.result!.correctIndex).toBe(q.correctIndex);
+    expect(
+      result.room.game!.ranking.find((p) => p.id !== room.playerId)!.score,
+    ).toBe(0);
+    await expire();
+    const leaderboard = await guest.next(
+      (m) => m.type === "state" && m.room.phase === "leaderboard",
+    );
+    expect(
+      leaderboard.type === "state" && leaderboard.room.game!.ranking[0].score,
+    ).toBe(score);
+    expect(
+      (await host.action({ type: "answer", optionIndex: 0, ...context })).type,
+    ).toBe("error");
+    host.ws.close();
+    guest.ws.close();
+    // Finish close callbacks before changing persisted time; their normal
+    // persistence must not race with this reconstruction fixture.
+    await evictDurableObject(stub);
+    await expire(20 * 60 * 1000);
+    const finished = (await runInDurableObject(stub, async (_instance, ctx) =>
+      ctx.storage.get<StoredRoom>("room"),
+    ))!;
+    expect(finished.phase).toBe("final-results");
+    expect(finished.quiz!.round).toBe(12);
+    expect(
+      finished.quiz!.participants.find((p) => p.id === room.playerId)!.score,
+    ).toBe(score);
+    expect(
+      finished.quiz!.participants.find((p) => p.id === room.playerId)!
+        .correctAnswers,
+    ).toBe(1);
+  });
+  it("additively upgrades a deployed placeholder without changing identities or settings", async () => {
+    const room = await create();
+    const stub = bindings.ROOMS.get(bindings.ROOMS.idFromName(room.code));
+    await runInDurableObject(stub, async (_instance, ctx) => {
+      const current = (await ctx.storage.get<StoredRoom>("room"))!;
+      const legacy = Object.fromEntries(
+        Object.entries(current).filter(
+          ([key]) =>
+            !["schemaVersion", "quiz", "recentQuestionIds", "notice"].includes(
+              key,
+            ),
+        ),
+      );
+      await ctx.storage.put("room", {
+        ...legacy,
+        phase: "session",
+        session: { id: crypto.randomUUID(), startedAt: Date.now() },
+      });
+    });
+    await evictDurableObject(stub);
+    const host = await connect(room.code, room.token);
+    const snapshot = await host.next(state);
+    if (snapshot.type !== "state") throw new Error("Missing upgraded state");
+    expect(snapshot.playerId).toBe(room.playerId);
+    expect(snapshot.room.phase).toBe("lobby");
+    expect(snapshot.room.notice).toContain("Frissült");
+    expect(snapshot.room.settings).toEqual({
+      questionCount: 12,
+      difficulty: "normal",
+    });
+    expect(snapshot.room.players[0].ready).toBe(false);
+    expect((await host.action({ type: "ready", value: true })).type).toBe(
+      "ack",
+    );
+    const stored = (await runInDurableObject(stub, async (_instance, ctx) =>
+      ctx.storage.get<StoredRoom>("room"),
+    ))!;
+    expect(stored.schemaVersion).toBe(2);
+    expect(stored.quiz).toBeNull();
+  });
   it("bounds streamed input and applies per-socket action throttling", async () => {
     const oversized = await SELF.fetch(origin + "/api/rooms", {
       method: "POST",

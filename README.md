@@ -1,68 +1,96 @@
 # Észvesztő ✳
 
-Hungarian multiplayer quiz party game for 2–8 friends. This first milestone implements a real private lobby and a shared session-start transition, with a mobile-first interface and eight cosmetic characters.
+Magyar nyelvű, mobilra tervezett, böngészős kvízparti 2–8 barátnak. A második mérföldkő teljes, szerver által vezérelt játékot ad az élő előszobához: kategóriaszavazás, valódi kérdések, pontozás, ranglista, dupla pontos döntő és új parti.
 
-## What works
+## Játszható funkciók
 
-- Create a room, join by seven-character code or invitation URL, and copy the invitation.
-- Real-time players, character changes, readiness, connection indicators and host designation.
-- Server-authorized host settings: 6/12/18 questions and Könnyed/Normál/Nehéz difficulty; defaults are 12 and Normál.
-- A start requires 2–8 connected players, including a ready host. Changing settings resets everyone's readiness; changing character resets your own.
-- Refresh/reconnect restores the same identity; duplicate requests do not add players or start another session.
-- Host transfer, disconnected-seat reservation, room expiration and bounded input/request handling.
-- A synchronized **limited session screen**, honestly labeled as the end of this milestone.
+- Privát szoba hétkarakteres kóddal vagy meghívóval, nyolc kozmetikai karakterrel.
+- Szinkronizált karakterválasztás, készenlét és házigazdai beállítások: 6/12/18 kérdés, Könnyed/Normál/Nehéz. Az alapérték továbbra is 12 és Normál.
+- Indításhoz 2–8 kapcsolódó, kész játékos szükséges, a házigazdával együtt. Beállításcsere mindenki, karaktercsere a saját készenlétet törli.
+- Háromkérdéses blokkonként 8 másodperces szavazás három kategóriára; az idő lejártáig módosítható saját szavazat, többségi győztes, egyenletes véletlen döntetlen esetén.
+- Közös, egyszer megkevert kérdés és négy nagy válaszgomb; 15 másodperces szerverhatáridő, egy lezárt válasz játékosonként. Minden jogosult válasza után korai eredmény.
+- Helyes válasz 100 + 0–50 gyorsasági pont, hibás vagy hiányzó válasz 0. Az utolsó 2/3/4 kérdés a 6/12/18 kérdéses partiban dupla pontos döntő.
+- Minden kérdés után 4 másodperc eredmény és 4 másodperc ranglista; összesített pontok, közös helyezés döntetlennél, saját pontosság és átlagos válaszidő a végén.
+- Házigazda által engedélyezett új parti ugyanabban a szobában: identitások, karakterek és beállítások maradnak, pontok és válaszok törlődnek, ismét készen kell állni.
 
-**Not implemented:** questions, category voting, scoring, sabotage effects, leaderboards, accounts or matchmaking. The UI's fixed category/sabotage labels describe the approved game rules, not playable features in this version. See [the game design contract](docs/game-design.md).
+**Még nincs szabotázs:** a harmadik PR témája a képességválasztás, célzás és korlátozott összhatás. Ezekhez csak a fázistípusok vannak fenntartva. Fiók, bolt, globális ranglista és nyilvános párkeresés nincs. Részletes szabályok: [játéktervezési szerződés](docs/game-design.md).
 
-## Architecture
+## Kérdésbank és nehézség
 
-React + TypeScript + Vite provide the UI. A Cloudflare Worker serves the built assets and API on the same origin. Each room has one SQLite-backed Durable Object: it serializes mutations, persists state, validates actions and broadcasts full public snapshots over hibernatable WebSockets. Browser storage is only a reconnect credential store, never the room database.
+A szerveroldali `src/server/questions.ts` **120 magyar szöveges kérdést** tartalmaz: 12 kategória, kategóriánként 10 (3 könnyű, 4 közepes, 3 nehéz). Kategóriák: Földrajz, Történelem, Filmek és sorozatok, Zene, Tudomány, Állatvilág, Gasztronómia, Sport, Videójátékok, Magyarország, Popkultúra, Vegyes érdekességek.
 
-- `src/client`: screens, styling, transport and browser credential storage.
-- `src/shared/game.ts`: character definitions, settings, protocol and future phase/question types.
-- `src/server/model.ts`: validated room transitions and public-state projection.
-- `src/server/room.ts`: durable persistence, WebSocket authentication, alarms and lifecycle.
-- `src/server/index.ts`: HTTP routes, same-origin protection, request limits and asset headers.
-- `tests`: room rules, actual Workers-runtime integration and two-browser functional checks.
+Importáláskor automatikus strukturális ellenőrzés szükséges: egyedi ID és kérdésszöveg, ismert kategória és nehézség, négy különböző válasz, érvényes kulcs, publikálási állapot és HTTPS forrásmutató. A kérdésbank és megoldókulcs nem kerül a böngészőcsomagba. Csak a jelenlegi kérdés nyilvános része érkezik, megoldás kizárólag lezárás után. Nincs külső kérdés-API, élő AI vagy távoli képkérés.
 
-Read-only reference inspection covered [`zsdaniel105/Tavern-Table`](https://github.com/zsdaniel105/Tavern-Table), whose README calls the game Dicey Dummies and whose Worker is named `tavern-tales`. Its authoritative room, typed-action, public-snapshot and alarm patterns support the approach used here. Its settings-revision safeguard was adapted to prevent stale ready/start actions after a host setting change. Észvesztő has independent source, artwork representations, room credentials and gameplay contracts. No reference repository files were modified. See [the reference notes](docs/reference-notes.md).
+Ez **kezdő tartalomkészlet**, nem függetlenül, ember által auditált adatbázis. A forrásmutatók témaköri szerkesztői kiindulópontok, nem minden kérdéshez ellenőrzött idézetek. A nehézség előzetes besorolás, nem játékosokkal mért kalibráció. A szerkezet automatikusan ellenőrzött; szélesebb publikálás előtt tételes tartalmi és nehézségi ellenőrzés ajánlott. A jelenlegi állapot ezt kifejezetten `automated-structure-only` jelöléssel tárolja.
 
-## Cloudflare deployment through GitHub
+A célzott háromkérdéses minták:
 
-The intended workflow is GitHub → Codex Cloud → pull request → Cloudflare Workers Builds. No local development or custom domain is required.
+| Beállítás              | Minta                   |
+| ---------------------- | ----------------------- |
+| Könnyed                | könnyű, könnyű, közepes |
+| Normál, első félidő    | könnyű, közepes, nehéz  |
+| Normál, második félidő | közepes, nehéz, nehéz   |
+| Nehéz                  | közepes, nehéz, nehéz   |
 
-1. Review and merge the foundation PR into `main`.
-2. In Cloudflare, connect **Workers Builds** to `zsdaniel105/eszveszto` and choose `main` as the production branch. This application uses Workers, not a standalone Pages static deployment.
-3. Use Node.js 24 (`NODE_VERSION=24` in build settings), build command `npm ci && npm run build`, and deploy command `npx wrangler deploy`. The Vite plugin emits the Worker bundle and deploy configuration; Wrangler follows `.wrangler/deploy/config.json`.
-4. Keep the `ROOMS` Durable Object binding and `v1` SQLite migration in `wrangler.jsonc`. Do not remove migrations after deployment. `ASSETS` serves `dist/client`. `ROOM_LIMITER` is a Workers rate-limiting binding (60 requests per IP per 60 seconds, namespace 1001); no external service is required.
-5. Workers Builds uses Cloudflare's configured deployment authorization. If deploying from a separate CI system, store a suitably scoped `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in its secret settings; never commit them. Anonymous gameplay itself needs no secrets, database URLs or AI API keys.
-6. Cloudflare supplies an initial `workers.dev` URL. Test the live room flow described below after deployment. Browser reconnect credentials are origin-scoped, so changing domains does not transfer old sessions.
+A véletlen mintavétel a kiválasztott kategórián belül marad. Új parti esetén először a legfeljebb 60 megjegyzett korábbi kérdésen kívüli tartalom fogy; azon belül a kért nehézség. Ha nincs megfelelő szint, a dokumentált sorrend szerinti másik szint következik. Partin belül nincs ismétlődő kérdés-ID. Kategória csak legalább három felhasználatlan kérdéssel ajánlható fel; az új kategóriaajánlatok elsőbbséget kapnak, szükség esetén korábbi ajánlat ismétlődhet. Képes és igaz/hamis típusokra a modell és megjelenítés bővíthető, a jelenlegi publikált bank csak négyválaszos szöveges kérdéseket enged.
 
-SQLite Durable Objects and Workers assets are suitable for Cloudflare's Free plan, subject to current request/storage/CPU limits. Confirm current Cloudflare quotas before opening the game to a large audience. Do not change `ROOMS` to legacy non-SQLite objects; those have different plan requirements. No Cloudflare account was bound to this coding session, and no production deployment is claimed.
+## Állapotgép és pontozás
 
-## Validation in Codex Cloud and GitHub
+`lobby → category-vote → question → results → leaderboard`. Minden harmadik lezárt kérdés után új szavazás, az első döntőkérdés előtt egyszeri 2 másodperces `finale`, az utolsó ranglista után `final-results`. A házigazda innen nyithat új előszobát. A kliens nem léptet fázist és nem küld pontszámot.
 
-Node.js 24 is pinned in `.node-version`. The lockfile is committed. Codex/CI installs with `npm ci` and runs:
+A szerver menti a fázisazonosítót, munkamenetet, kört, határidőt, kérdésazonosítókat, kevert válaszsorrendet, zárolt válaszokat, korábbi helyezést és pontokat. A Durable Object az állapotváltozásokat sorosítja. Az alarm a fázishatáridő, szobalejárat, kapcsolatfigyelés és visszatérési türelmi idő közül a legkorábbira áll. Későn érkező alarm az eredeti határidőktől halad tovább, ugyanazt a kérdést egyszer pontozva. Nyitott böngésző nélkül is befejeződik a parti. A kliens a szerveridő és ping/pong alapján becsült óraeltéréssel rajzolja a visszaszámlálást; a válasz elfogadásáról a szerver dönt.
+
+A technikai alapértékek (8/15/4/4/2 másodperc, 2/3/4 döntőkérdés és gyorsasági képlet) e PR implementációs döntései. Helyes, időben beérkezett válasznál `e = floor((szerver_beérkezés − kérdéskezdés) / 1000)`, `bónusz = floor(50 × max(0, 14 − e) / 14)`, `pont = (100 + bónusz) × szorzó`. Így az első másodperc bónusza 50, az utolsóé 0; a szorzó a döntőben 2, egyébként 1. A teljes 15 másodperces határidőn vagy utána beérkező válasz már nem fogadható el. Nincs kliensidő-alapú vagy rejtett késleltetéskompenzáció; a hálózati út befolyásolja a fogadást, de másodperces pontozási sávok korlátozzák a finom időzítési különbségeket.
+
+## Architektúra
+
+React + TypeScript + Vite frontend, egyazon eredetű Cloudflare Worker API és assetkiszolgálás. Szobánként egy SQLite-alapú Durable Object, hibernálható WebSocketekkel és személyre vetített állapotüzenetekkel. Böngészőtár csak a visszatérési belépést tárolja.
+
+- `src/client`: előszoba, fókuszált játékképernyők, stílusok, kapcsolat és óraeltérés.
+- `src/shared/game.ts`: karakterek, beállítások, típusos protokoll és nyilvános játékadatok.
+- `src/server/questions.ts`: publikált kérdések, forrásmutatók és strukturális validálás.
+- `src/server/quiz.ts`: mintavétel, szavazás, határidők, pontozás, rangsorolás és új parti.
+- `src/server/model.ts`: szobaszabályok, bemenetvalidálás, régi állapot kompatibilis bővítése.
+- `src/server/room.ts`: tartós tárolás, WebSocket-hitelesítés és alarmok.
+- `src/server/index.ts`: HTTP, eredetellenőrzés, kéréskorlátok és assetfejlécek.
+- `tests`: szabálytesztek, valódi Workers futtatókörnyezet és kétböngészős teljes parti.
+
+Az első PR csak olvasásra vizsgálta a [`zsdaniel105/Tavern-Table`](https://github.com/zsdaniel105/Tavern-Table) mintáit (README: Dicey Dummies; Worker: tavern-tales). Észvesztő önálló forrást és tartalmat használ; a referenciaprojekt nem módosult. [Referenciajegyzetek](docs/reference-notes.md).
+
+## Újracsatlakozás és szobaéletciklus
+
+A böngésző szobánként véletlen 256 bites belépési titkot készít; a szerver csak SHA-256 hashét tárolja. Első WebSocket-üzenetben vagy HTTPS-kérésben érkezik, URL-be és nyilvános állapotba nem kerül. A publikus játékos-ID nem ad jogosultságot. Másik ablak ugyanazzal a belépéssel átveszi a kapcsolatot; az előző ablak érthető üzenetet kap. Tiltott böngészőtár vagy törölt tár esetén az identitás helyreállítása nem garantálható.
+
+Kapcsolatfigyelés: kliensping 20 másodpercenként, szerver-időtúllépés 65 másodperc, nem hitelesített kapcsolat 10 másodperc. Az előszobában 90 másodperces észlelt kapcsolatvesztés után felszabadul a hely és a régi identitás lejár. **Aktív partiban és a végeredménynél a rekord és a pontok maradnak**, a házigazda 90 másodperc után a legkorábban érkezett, elsősorban kapcsolódó, még türelmi időn belüli játékosra száll. Türelmi időn túli játékos nem tartja fel a korai kérdéslezárást, de visszatérhet ugyanazzal az identitással a parti/szoba végéig. A zárolt válasz frissítéskor is megmarad. A 15 másodperces határidő minden esetben továbbviszi a játékot.
+
+Kifejezett kilépés elveszi a visszatérési jogosultságot, de az addigi eredmények a lezáró ranglistában maradnak. Új partinál a türelmi időn túl offline játékosok szobarecordjai törlődnek; visszatérők és kapcsolódók maradnak. Új készenlét, új munkamenet és fázisazonosító védi az új partit a korábbi beküldésektől. Azonos pontszámhoz azonos versenyhelyezés tartozik; megjelenítési sorrend pontszám, belépési idő, ID. Pontosság: helyes / összes kérdés, kihagyásokkal együtt. Átlagos válaszidő csak elfogadott válaszokra, helyes és hibás válaszokra egyaránt.
+
+Üres szoba törlődik; lejárat 2 óra játék/előszoba-művelet nélküli tétlenség vagy 24 óra teljes kor. Ping önmagában nem hosszabbítja meg. Kód új anonim belépést enged, másik játékos irányítását nem. Új játékos csak előszobába léphet be. Alapvédelmek: azonos eredet, korlátos üzenetek, HTTP/kapcsolat sebességkorlát, runtime-validálás, CSP és szövegként renderelt becenevek. Ezek nem teljes nyilvános szolgáltatási visszaélésvédelem.
+
+## Cloudflare és felhős munkafolyamat
+
+GitHub → Codex Cloud → pull request → Cloudflare Workers Builds. A tulajdonosnak nincs szüksége helyi fejlesztőkörnyezetre. A meglévő Workers Builds kapcsolat továbbra is `main` ágról építhet:
+
+1. Node.js 24 (`NODE_VERSION=24`), build: `npm ci && npm run build`, deploy: `npx wrangler deploy`. A Vite plugin Worker csomagot és deploy-konfigurációt ad; Wrangler követi a `.wrangler/deploy/config.json` fájlt.
+2. A Worker neve, `ROOMS`, `ASSETS`, `ROOM_LIMITER` és a `v1` SQLite-migráció változatlan. Nincs új infrastruktúra, adatbázis, fizetős szolgáltatás vagy titokigény.
+3. Tárolási séma: az új mezők a meglévő `room` rekordhoz adódnak (`schemaVersion: 2`). Régi előszobák identitásai és beállításai megmaradnak. Az első PR régi, kérdés nélküli `session` képernyője egyszer visszatér az előszobába, új készenléttel és magyar tájékoztatóval. Nincs SQLite-osztályváltás vagy destruktív migráció.
+4. Tartalomfrissítésnél a kérdés-ID-kat őrizni kell, mert aktív parti hivatkozhat rájuk. A 24 órás szobakor felső korlátot ad ennek az átmenetnek.
+5. A kódolási munkamenet csak helyi buildet és Wrangler deploy dry runt ellenőriz; **nem végzett éles telepítést**. A PR automatikusan nem kerül beolvasztásra.
+
+Workers/SQLite Durable Objects a Cloudflare Free csomagban a mindenkori kvóták mellett használhatók. Éles ellenőrzéshez két eszközön játsszatok végig egy rövid partit, frissítsetek már beküldött válasz után, ellenőrizzétek a dupla pontos döntőt és az új partit. Az eredet változtatása nem viszi át a böngészőben őrzött belépéseket.
+
+## Ellenőrzés Codex Cloudban és CI-ben
+
+A Node-verzió és a lockfile rögzített. Codex/CI:
 
 ```sh
-npm run check     # lint, strict TypeScript, Workers-runtime tests, production build
-npm run test:e2e  # production assets + local Wrangler + independent Chromium contexts
+npm ci
+npm run check     # ESLint, TypeScript, Workers-tesztek, éles build
+npm run test:e2e  # saját Wrangler szerver + független Chromium-környezetek
 ```
 
-The browser runner starts and stops its own server. GitHub Actions installs Playwright Chromium; a cloud image with a preinstalled Chromium can set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`. On sandboxed cloud machines, put npm cache and Wrangler logs/config in writable directories (see `docs/cloud-workflow.md`). `npm run dev` starts the UI and Worker together; `npm run start` serves the production build in Wrangler. These commands are for Codex/CI, not a requirement for the product owner.
+A böngészőteszt valódi, 8/15/4/4/2 másodperces termékidőkkel játssza végig a hatkérdéses partit; nincs éles kódba épített tesztóra vagy hamis pontozás. Mindkét kliens válaszol, az egyik frissít beküldés után, az ellenőrzés tényleges részpontokból számolja a végső sorrendet. Mobil szélességek 320–430 px és asztali nézet is ellenőrzött. A Workers-tesztek tárolt határidőt módosító, kizárólag tesztoldali rekonstrukcióval vizsgálják a késői alarmot és a kliens nélküli befejezést. A tesztek nem állítanak éles Cloudflare-validálást.
 
-### Test a deployed lobby
+A böngészőrunner saját szervert indít/leállít; előtte ne fusson ugyanazon porton kézi szerver. CI Playwright Chromiumot telepít; előtelepített felhős Chromiumhoz `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` használható. Sandboxban az npm cache és Wrangler napló/konfiguráció írható helyre kerüljön: [felhős munkafolyamat](docs/cloud-workflow.md). `npm run dev` a UI-t és Workert együtt, `npm run start` az elkészült buildet futtatja. Ezek Codex/CI-parancsok.
 
-On two different devices or browser profiles, create a room and open its invitation URL. Check the player list updates on both screens. Change a character, toggle readiness and change host settings; verify synchronization and readiness reset. Guests must be unable to change settings or start. Refresh one player and confirm the player count stays the same. Mark both ready and start; both should show the same session screen. Close the host's browser and wait for disconnect detection plus the 90-second grace period; the earliest connected remaining player becomes host. Verify a ninth player is rejected and a nonexistent room displays a Hungarian error. The automated browser suite exercises the core flow without pretending to validate a remote deployment.
-
-## Sessions, cleanup and limitations
-
-The browser creates a cryptographically random 256-bit credential. It is scoped to one room, sent over same-origin HTTPS/in the first WebSocket message, and stored **only as a SHA-256 hash** by the backend. A public player ID grants no permissions. HTTP retries reuse the credential. Codes are derived from a credential hash with collision retries, independently from the room's UUID. Public broadcasts exclude hashes and credentials. Keep invitation codes private; a code authorizes a new anonymous join, not control of another player.
-
-Only one socket per credential is active. Opening the same session in another tab replaces the old connection with an explicit explanation. Duplicate nicknames are rejected case-insensitively; duplicate characters are allowed. If browser storage is disabled, the interface warns that refresh recovery cannot be guaranteed. Clearing storage loses your identity; a new join must use a distinct nickname until the old seat is removed.
-
-Clients ping every 20 seconds. The server closes unauthenticated sockets after 10 seconds and stale connections after 65 seconds. A disconnected player's seat is retained for another **90 seconds**; readiness is cleared upon detected disconnect. Once removed, that identity cannot resume. Explicit leave releases the seat immediately. Host transfer chooses connected survivors first, then the earliest join time, then player ID as a deterministic tie-breaker. An empty room deletes its state; rooms also expire after **2 hours without gameplay/lobby activity** or **24 hours total**. Pings do not extend room lifetime. Alarms persist across hibernation, and the next request also checks cleanup. Mobile backgrounding may exceed the grace period.
-
-Same-origin WebSocket checks, bounded bodies/messages, per-IP HTTP throttling, per-room join limits and per-socket action limits provide basic protection. Rate limits are practical safeguards, not a complete public-service abuse defense; in-memory join counters reset on hibernation. User content renders as text, and the production Worker applies CSP and security headers. No user credentials appear in URLs or public room snapshots.
-
-Next milestone: server-owned category voting and question/answer transitions with an approved question dataset, synchronized deadlines and targeted tests. Agree on the speed-bonus/latency policy before adding scoring.
+Következő PR: valódi szabotázsválasztás és célzás, szerveroldali összevonási korlátok, olvasható és megválaszolható mobilhatások, erre célzott többjátékos tesztek. A kérdésbank tételes forrásellenőrzése és nehézségkalibrációja külön tartalmi feladat.

@@ -1,3 +1,4 @@
+import { GameView } from "./GameView";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   CHARACTERS,
@@ -141,7 +142,7 @@ export function App() {
           <Logo small />
         </button>
         <span className="top-label">TUDÁS. TRÉFA. KÁOSZ.</span>
-        <span className="edition">ELSŐ FELVONÁS</span>
+        <span className="edition">MÁSODIK FELVONÁS</span>
       </header>
       {route.view === "home" ? (
         <Home onNavigate={navigate} />
@@ -271,8 +272,8 @@ function Home({
         </div>
       </section>
       <p className="milestone-note">
-        Most az élő előszoba és a közös játékindítás próbálható ki. A
-        kvízkérdések és a szabotázs a következő felvonásban érkeznek.
+        Szavazzatok témára, válaszoljatok, és fordítsatok a dupla pontos
+        döntőben! A szabotázs a következő felvonásban érkezik.
       </p>
     </main>
   );
@@ -461,6 +462,7 @@ function RoomView({
   onRejoin: () => void;
 }) {
   const [room, setRoom] = useState<PublicRoom | null>(null);
+  const [clockOffset, setClockOffset] = useState(0);
   const [playerId, setPlayerId] = useState("");
   const [connection, setConnection] = useState<Connection>("connecting");
   const [error, setError] = useState("");
@@ -475,6 +477,7 @@ function RoomView({
         setRoom(state);
         setPlayerId(id);
       },
+      clock: setClockOffset,
       connection: setConnection,
       error: setError,
     });
@@ -553,23 +556,27 @@ function RoomView({
         </button>
       </main>
     );
+  if (room?.game)
+    return (
+      <GameView
+        room={room}
+        playerId={playerId}
+        clockOffset={clockOffset}
+        online={online}
+        connectionLabel={CONNECTION_LABELS[connection]}
+        busy={busy}
+        error={error}
+        storageWarning={storageWarning}
+        onAction={act}
+      />
+    );
   return (
-    <main
-      className={`room-layout ${room?.phase === "session" ? "session-layout" : ""}`}
-    >
+    <main className="room-layout">
       <section className="room-main">
         <div className="room-title">
           <div>
-            <div className="eyebrow">
-              {room?.phase === "session"
-                ? "A CSAPAT ÖSSZEÁLLT"
-                : "PRIVÁT ELŐSZOBA"}
-            </div>
-            <h1>
-              {room?.phase === "session"
-                ? "Megérkeztetek!"
-                : "Mindenki itt van?"}
-            </h1>
+            <div className="eyebrow">PRIVÁT ELŐSZOBA</div>
+            <h1>Mindenki itt van?</h1>
           </div>
           <span
             className={`connection ${online ? "online" : ""}`}
@@ -580,6 +587,7 @@ function RoomView({
           </span>
         </div>
         {error && <Notice>{error}</Notice>}
+        {room?.notice && <Notice kind="info">{room.notice}</Notice>}
         {storageWarning && (
           <Notice kind="info">
             A böngésző nem engedi a mentést. Frissítés után új belépésre lehet
@@ -592,18 +600,16 @@ function RoomView({
             addig a műveletek szünetelnek.
           </Notice>
         )}
-        {room?.phase !== "session" && (
-          <div className="invite-bar">
-            <div>
-              <span>SZOBAKÓD</span>
-              <strong>{session.code}</strong>
-            </div>
-            <button className="secondary" onClick={copy}>
-              {copied ? "✓ Link másolva" : "Meghívó másolása"} <Arrow />
-            </button>
+        <div className="invite-bar">
+          <div>
+            <span>SZOBAKÓD</span>
+            <strong>{session.code}</strong>
           </div>
-        )}
-        {manualCopy && room?.phase !== "session" && (
+          <button className="secondary" onClick={copy}>
+            {copied ? "✓ Link másolva" : "Meghívó másolása"} <Arrow />
+          </button>
+        </div>
+        {manualCopy && (
           <label className="input-label">
             Másold ki ezt a meghívót
             <input readOnly value={link} onFocus={(e) => e.target.select()} />
@@ -654,11 +660,9 @@ function RoomView({
                     >
                       {!p.connected
                         ? "Visszavárjuk"
-                        : room.phase === "session"
-                          ? "Itt van"
-                          : p.ready
-                            ? "✓ Kész"
-                            : "Készülődik"}
+                        : p.ready
+                          ? "✓ Kész"
+                          : "Készülődik"}
                     </span>
                   </li>
                 );
@@ -707,24 +711,6 @@ function RoomView({
                 }}
               />
             )}
-            {room.phase === "session" && (
-              <section className="session-card" role="status">
-                <span className="step-chip">KÖZÖS JÁTÉKMENET ELINDÍTVA</span>
-                <h2>Az első felvonás sikerült. ✳</h2>
-                <p>
-                  A szerver mindenkit ugyanabba a játékmenetbe léptetett. A
-                  következő felvonásban érkezik a kategóriaválasztás, a kvíz és
-                  a szabotázs.
-                </p>
-                <p className="session-facts">
-                  {room.settings.questionCount} kérdésre tervezve ·{" "}
-                  {DIFFICULTIES[room.settings.difficulty]} nehézség
-                </p>
-                <small>
-                  Ebben a verzióban még nincsenek kérdések vagy pontszámok.
-                </small>
-              </section>
-            )}
           </>
         )}
         <button
@@ -735,97 +721,96 @@ function RoomView({
           Kilépés a szobából
         </button>
       </section>
-      {room?.phase !== "session" && (
-        <aside className="room-settings">
-          <span className="step-chip">A PARTI RECEPTJE</span>
-          <h2>Játékbeállítások</h2>
-          <p>
-            {isHost
-              ? "Te vagy a házigazda. Állítsd össze a partit!"
-              : "A házigazda állítja össze a partit."}
-          </p>
-          <fieldset disabled={!isHost || disabled || room?.phase !== "lobby"}>
-            <legend>Kérdések száma</legend>
-            <div className="segmented">
-              {([6, 12, 18] as const).map((n) => (
+      <aside className="room-settings">
+        <span className="step-chip">A PARTI RECEPTJE</span>
+        <h2>Játékbeállítások</h2>
+        <p>
+          {isHost
+            ? "Te vagy a házigazda. Állítsd össze a partit!"
+            : "A házigazda állítja össze a partit."}
+        </p>
+        <fieldset disabled={!isHost || disabled || room?.phase !== "lobby"}>
+          <legend>Kérdések száma</legend>
+          <div className="segmented">
+            {([6, 12, 18] as const).map((n) => (
+              <button
+                type="button"
+                key={n}
+                aria-pressed={room?.settings.questionCount === n}
+                onClick={() =>
+                  room &&
+                  void act({
+                    type: "settings",
+                    value: { ...room.settings, questionCount: n },
+                  })
+                }
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset disabled={!isHost || disabled || room?.phase !== "lobby"}>
+          <legend>Nehézség</legend>
+          <div className="difficulty-options">
+            {(Object.keys(DIFFICULTIES) as (keyof typeof DIFFICULTIES)[]).map(
+              (d) => (
                 <button
                   type="button"
-                  key={n}
-                  aria-pressed={room?.settings.questionCount === n}
+                  key={d}
+                  aria-pressed={room?.settings.difficulty === d}
                   onClick={() =>
                     room &&
                     void act({
                       type: "settings",
-                      value: { ...room.settings, questionCount: n },
+                      value: { ...room.settings, difficulty: d },
                     })
                   }
                 >
-                  {n}
+                  <span>{DIFFICULTIES[d]}</span>
+                  <span aria-hidden="true">
+                    {d === "easy" ? "◉○○" : d === "normal" ? "◉◉○" : "◉◉◉"}
+                  </span>
                 </button>
-              ))}
-            </div>
-          </fieldset>
-          <fieldset disabled={!isHost || disabled || room?.phase !== "lobby"}>
-            <legend>Nehézség</legend>
-            <div className="difficulty-options">
-              {(Object.keys(DIFFICULTIES) as (keyof typeof DIFFICULTIES)[]).map(
-                (d) => (
-                  <button
-                    type="button"
-                    key={d}
-                    aria-pressed={room?.settings.difficulty === d}
-                    onClick={() =>
-                      room &&
-                      void act({
-                        type: "settings",
-                        value: { ...room.settings, difficulty: d },
-                      })
-                    }
-                  >
-                    <span>{DIFFICULTIES[d]}</span>
-                    <span aria-hidden="true">
-                      {d === "easy" ? "◉○○" : d === "normal" ? "◉◉○" : "◉◉◉"}
-                    </span>
-                  </button>
-                ),
-              )}
-            </div>
-          </fieldset>
-          <div className="fixed-rules">
-            <span>✦ Szabotázs mindig bekapcsolva</span>
-            <span>✦ Kategóriák alapból bekapcsolva</span>
-            <span>✦ Privát szoba, csak meghívóval</span>
+              ),
+            )}
           </div>
-          {room?.phase === "lobby" && (
-            <>
-              <p className="start-reason" id="start-reason">
-                {startReason}
-              </p>
-              {isHost ? (
-                <button
-                  className="primary wide"
-                  disabled={disabled || !canStart}
-                  aria-describedby="start-reason"
-                  onClick={() => void act({ type: "start" })}
-                >
-                  Indulhat a játék! <span aria-hidden="true">→</span>
-                </button>
-              ) : (
-                <div className="waiting-host" role="status">
-                  A házigazda indítja a játékot.
-                </div>
-              )}
-              <p className="settings-note">
-                Beállítás- vagy karaktercsere után újra jelezd, hogy kész vagy.
-              </p>
-            </>
-          )}
-          <p className="settings-note">
-            Kapcsolatvesztéskor 90 másodpercig őrizzük a helyed. A szoba 2 óra
-            tétlenség után lejár.
-          </p>
-        </aside>
-      )}
+        </fieldset>
+        <div className="fixed-rules">
+          <span>✦ Szabotázs a következő felvonásban</span>
+          <span>✦ Kategóriák alapból bekapcsolva</span>
+          <span>✦ Privát szoba, csak meghívóval</span>
+        </div>
+        {room?.phase === "lobby" && (
+          <>
+            <p className="start-reason" id="start-reason">
+              {startReason}
+            </p>
+            {isHost ? (
+              <button
+                className="primary wide"
+                disabled={disabled || !canStart}
+                aria-describedby="start-reason"
+                onClick={() => void act({ type: "start" })}
+              >
+                Indulhat a játék! <span aria-hidden="true">→</span>
+              </button>
+            ) : (
+              <div className="waiting-host" role="status">
+                A házigazda indítja a játékot.
+              </div>
+            )}
+            <p className="settings-note">
+              Beállítás- vagy karaktercsere után újra jelezd, hogy kész vagy.
+            </p>
+          </>
+        )}
+        <p className="settings-note">
+          Kapcsolatvesztéskor az előszobában 90 másodpercig őrizzük a helyed.
+          Játék közben a pontjaid megmaradnak. A szoba 2 óra tétlenség után
+          lejár.
+        </p>
+      </aside>
     </main>
   );
 }

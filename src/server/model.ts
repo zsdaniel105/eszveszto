@@ -1,4 +1,11 @@
 import {
+  advanceQuiz,
+  initializeQuiz,
+  publicQuiz,
+  quizAction,
+  type StoredQuiz,
+} from "./quiz";
+import {
   CHARACTERS,
   DEFAULT_SETTINGS,
   DISCONNECT_GRACE_MS,
@@ -23,11 +30,18 @@ export class RoomError extends Error {
 export interface StoredPlayer extends Player {
   credentialHash: string;
   recentActions: string[];
+  graceExpired: boolean;
 }
-export interface StoredRoom extends Omit<PublicRoom, "players" | "expiresAt"> {
+export interface StoredRoom extends Omit<
+  PublicRoom,
+  "players" | "expiresAt" | "game"
+> {
   players: StoredPlayer[];
   lastActivityAt: number;
   createHash: string;
+  schemaVersion: 2;
+  quiz: StoredQuiz | null;
+  recentQuestionIds: string[];
 }
 export function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -91,8 +105,75 @@ export function parseAction(value: unknown): Action {
       };
     case "leave":
       return { type: "leave" };
+    case "vote": {
+      if (typeof a.categoryId !== "string" || a.categoryId.length > 30) break;
+      return { type: "vote", categoryId: a.categoryId, ...parseContext(a) };
+    }
+    case "answer": {
+      if (
+        typeof a.optionIndex !== "number" ||
+        !Number.isInteger(a.optionIndex) ||
+        a.optionIndex < 0 ||
+        a.optionIndex > 3
+      )
+        break;
+      return { type: "answer", optionIndex: a.optionIndex, ...parseContext(a) };
+    }
+    case "rematch":
+      return {
+        type: "rematch",
+        sessionId: validateId(a.sessionId),
+        phaseId: validateId(a.phaseId),
+      };
   }
   throw new RoomError("INVALID_ACTION", "Ez a művelet nem érhető el.");
+}
+function validateId(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(
+      value,
+    )
+  )
+    throw new RoomError("INVALID_INPUT", "Hiányzó vagy hibás játékazonosító.");
+  return value;
+}
+function parseContext(a: Record<string, unknown>) {
+  if (
+    typeof a.round !== "number" ||
+    !Number.isInteger(a.round) ||
+    a.round < 1 ||
+    a.round > 18
+  )
+    throw new RoomError("INVALID_INPUT", "Hibás körszám.");
+  return {
+    sessionId: validateId(a.sessionId),
+    phaseId: validateId(a.phaseId),
+    round: a.round,
+  };
+}
+export function upgradeRoom(room: StoredRoom): boolean {
+  if (room.schemaVersion === 2) return false;
+  room.schemaVersion = 2;
+  room.quiz = null;
+  room.recentQuestionIds = [];
+  room.notice = null;
+  room.settingsRevision ??= 1;
+  room.players.forEach((p) => {
+    p.graceExpired = false;
+  });
+  if (room.phase === "session") {
+    room.phase = "lobby";
+    room.session = null;
+    room.settingsRevision++;
+    room.players.forEach((p) => {
+      p.ready = false;
+    });
+    room.notice =
+      "Frissült a játék! Jelezzétek újra, hogy készen álltok, és indulhat a kvíz.";
+  }
+  room.revision++;
+  return true;
 }
 function validateRevision(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
@@ -105,7 +186,7 @@ export function expiry(room: StoredRoom): number {
     room.lastActivityAt + ROOM_IDLE_MS,
   );
 }
-export function publicRoom(room: StoredRoom): PublicRoom {
+export function publicRoom(room: StoredRoom, viewerId?: string): PublicRoom {
   return {
     id: room.id,
     code: room.code,
@@ -117,8 +198,15 @@ export function publicRoom(room: StoredRoom): PublicRoom {
     createdAt: room.createdAt,
     expiresAt: expiry(room),
     session: room.session,
+    game: publicQuiz(room, viewerId),
+    notice: room.notice,
     players: room.players.map(
-      ({ credentialHash: _hash, recentActions: _actions, ...player }) => player,
+      ({
+        credentialHash: _hash,
+        recentActions: _actions,
+        graceExpired: _grace,
+        ...player
+      }) => player,
     ),
   };
 }
@@ -134,6 +222,7 @@ export function makePlayer(
     character,
     credentialHash,
     recentActions: [],
+    graceExpired: false,
     ready: false,
     connected: false,
     joinedAt: now,
@@ -158,6 +247,10 @@ export function createRoom(
     lastActivityAt: now,
     session: null,
     createHash: player.credentialHash,
+    schemaVersion: 2,
+    quiz: null,
+    recentQuestionIds: [],
+    notice: null,
   };
 }
 export function joinRoom(room: StoredRoom, player: StoredPlayer): StoredPlayer {
@@ -195,24 +288,47 @@ export function joinRoom(room: StoredRoom, player: StoredPlayer): StoredPlayer {
   return player;
 }
 export function removePlayer(room: StoredRoom, id: string): void {
+  const participant = room.quiz?.participants.find((p) => p.id === id);
+  if (participant) participant.left = true;
   room.players = room.players.filter((p) => p.id !== id);
   if (room.hostId === id)
     room.hostId =
-      [...room.players].sort(
-        (a, b) =>
-          Number(b.connected) - Number(a.connected) ||
-          a.joinedAt - b.joinedAt ||
-          a.id.localeCompare(b.id),
-      )[0]?.id ?? "";
+      [...room.players]
+        .filter((p) => !p.graceExpired)
+        .sort(
+          (a, b) =>
+            Number(b.connected) - Number(a.connected) ||
+            a.joinedAt - b.joinedAt ||
+            a.id.localeCompare(b.id),
+        )[0]?.id ?? "";
   room.revision++;
 }
 export function pruneDisconnected(room: StoredRoom, now: number): boolean {
   const gone = room.players.filter(
     (p) =>
       !p.connected &&
+      !p.graceExpired &&
       p.disconnectedAt !== null &&
       now - p.disconnectedAt >= DISCONNECT_GRACE_MS,
   );
+  if (room.quiz) {
+    for (const p of gone) {
+      p.graceExpired = true;
+      room.revision++;
+    }
+    if (!room.hostId || gone.some((p) => p.id === room.hostId)) {
+      room.hostId =
+        [...room.players]
+          .filter((p) => !p.graceExpired)
+          .sort(
+            (a, b) =>
+              Number(b.connected) - Number(a.connected) ||
+              a.joinedAt - b.joinedAt ||
+              a.id.localeCompare(b.id),
+          )[0]?.id ?? "";
+    }
+    return gone.length > 0;
+  }
   // Remove nonhosts first so transfer never chooses another expired player.
   for (const p of gone.sort(
     (a, b) => Number(a.id === room.hostId) - Number(b.id === room.hostId),
@@ -236,6 +352,15 @@ export function applyAction(
   if (action.type === "leave") {
     removePlayer(room, playerId);
     room.lastActivityAt = now;
+    return;
+  }
+  advanceQuiz(room, now);
+  if (
+    action.type === "vote" ||
+    action.type === "answer" ||
+    action.type === "rematch"
+  ) {
+    quizAction(room, playerId, action, now);
     return;
   }
   if (room.phase !== "lobby")
@@ -290,8 +415,8 @@ export function applyAction(
           "Minden játékosnak kapcsolódnia kell és késznek kell lennie.",
           409,
         );
-      room.phase = "session";
-      room.session = { id: crypto.randomUUID(), startedAt: now };
+      room.notice = null;
+      initializeQuiz(room, now);
       break;
   }
   room.revision++;

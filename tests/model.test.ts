@@ -101,7 +101,7 @@ describe("authoritative room rules", () => {
       { type: "start", settingsRevision: room.settingsRevision },
       now,
     );
-    expect(room.phase).toBe("session");
+    expect(room.phase).toBe("category-vote");
     expect(room.session?.startedAt).toBe(now);
   });
   it("rejects a single-player start", () => {
