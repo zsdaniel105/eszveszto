@@ -126,8 +126,9 @@ export function GameView({
       )}
       {!online && (
         <div className="notice info" role="status">
-          Újracsatlakozunk. A parti közben tovább halad; a mentett válaszod és
-          pontjaid megmaradnak.
+          {room.phase === "sabotage-selection"
+            ? "Újracsatlakozunk. A választási idő tovább telik; az ajánlataid és a rögzített támadásod megmaradnak."
+            : "Újracsatlakozunk. A parti közben tovább halad; a mentett válaszod és pontjaid megmaradnak."}
         </div>
       )}
       {storageWarning && (
