@@ -1,17 +1,19 @@
 import { SoundControl } from "./SoundControl";
 import { useRoomSounds } from "./useRoomSounds";
 import { CharacterPortrait } from "./CharacterPortrait";
+import { DisplayView } from "./DisplayView";
+import { SettingsControls } from "./SettingsControls";
 import { GameView } from "./GameView";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   CHARACTERS,
   CODE_PATTERN,
-  DIFFICULTIES,
   characterById,
   type Action,
   type CharacterId,
   type PublicRoom,
   type Session,
+  type ConnectionRole,
 } from "../shared/game";
 import {
   forgetSession,
@@ -292,6 +294,7 @@ function Entry({
   onBack: () => void;
   onEnter: (session: Session) => void;
 }) {
+  const [role, setRole] = useState<ConnectionRole>("player");
   const [nickname, setNickname] = useState("");
   const [character, setCharacter] = useState<CharacterId>("maffiamacska");
   const [code, setCode] = useState(initialCode);
@@ -320,8 +323,8 @@ function Entry({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            nickname,
-            character,
+            ...(role === "player" ? { nickname, character } : {}),
+            role: mode === "create" ? role : "player",
             credential: credential.current,
           }),
           signal: AbortSignal.timeout(12_000),
@@ -330,7 +333,11 @@ function Entry({
       const data = (await response.json()) as { code?: string; error?: string };
       if (!response.ok || !data.code)
         throw new Error(data.error ?? "A belépés nem sikerült. Próbáld újra!");
-      onEnter({ code: data.code, credential: credential.current });
+      onEnter({
+        code: data.code,
+        credential: credential.current,
+        role: mode === "create" ? role : "player",
+      });
     } catch (e) {
       setError(
         e instanceof Error &&
@@ -389,21 +396,61 @@ function Entry({
           <h2>{mode === "create" ? "Játék létrehozása" : "Csatlakozás"}</h2>
         </div>
         {error && <Notice>{error}</Notice>}
-        <label className="input-label" htmlFor="nickname">
-          Beceneved
-          <input
-            id="nickname"
-            name="nickname"
-            autoComplete="nickname"
-            value={nickname}
-            minLength={2}
-            maxLength={20}
-            required
-            disabled={busy}
-            placeholder="Ahogy a többiek ismernek"
-            onChange={(e) => setNickname(e.target.value)}
-          />
-        </label>
+        {mode === "create" && (
+          <fieldset className="mode-selection" disabled={busy}>
+            <legend>Hogyan játszotok?</legend>
+            {(
+              [
+                [
+                  "player",
+                  "🎮",
+                  "Játékosként",
+                  "Normál kvíz",
+                  "Játszom is, a kérdéseket és válaszokat a saját eszközömön látom.",
+                ],
+                [
+                  "display",
+                  "📺",
+                  "Kijelzőként",
+                  "TV Party",
+                  "A TV vagy laptop vezeti a partit, a játékosok telefonról válaszolnak.",
+                ],
+              ] as const
+            ).map(([value, icon, label, name, description]) => (
+              <button
+                key={value}
+                type="button"
+                className="mode-card"
+                aria-label={label}
+                aria-pressed={role === value}
+                onClick={() => setRole(value)}
+              >
+                <span aria-hidden="true">{icon}</span>
+                <strong>
+                  {label} <small>{name}</small>
+                </strong>
+                <p>{description}</p>
+              </button>
+            ))}
+          </fieldset>
+        )}
+        {(mode === "join" || role === "player") && (
+          <label className="input-label" htmlFor="nickname">
+            Beceneved
+            <input
+              id="nickname"
+              name="nickname"
+              autoComplete="nickname"
+              value={nickname}
+              minLength={2}
+              maxLength={20}
+              required
+              disabled={busy}
+              placeholder="Ahogy a többiek ismernek"
+              onChange={(e) => setNickname(e.target.value)}
+            />
+          </label>
+        )}
         {mode === "join" && (
           <label className="input-label" htmlFor="code">
             Szobakód
@@ -425,11 +472,19 @@ function Entry({
             />
           </label>
         )}
-        <CharacterPicker
-          value={character}
-          onChange={setCharacter}
-          disabled={busy}
-        />
+        {(mode === "join" || role === "player") && (
+          <CharacterPicker
+            value={character}
+            onChange={setCharacter}
+            disabled={busy}
+          />
+        )}
+        {mode === "create" && role === "display" && (
+          <p className="form-note">
+            TV Party: a kijelző házigazda, nem játékos. A telefonos csapat a
+            QR-kóddal csatlakozik.
+          </p>
+        )}
         <button className="primary wide" disabled={busy}>
           {busy
             ? "Egy pillanat…"
@@ -466,20 +521,20 @@ function RoomView({
 }) {
   const [room, setRoom] = useState<PublicRoom | null>(null);
   const [clockOffset, setClockOffset] = useState(0);
-  const [playerId, setPlayerId] = useState("");
+  const [identityId, setIdentityId] = useState("");
   const [connection, setConnection] = useState<Connection>("connecting");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [editingCharacter, setEditingCharacter] = useState(false);
   const [copied, setCopied] = useState(false);
   const [manualCopy, setManualCopy] = useState(false);
-  useRoomSounds(room, playerId);
+  useRoomSounds(room, identityId);
   const client = useRef<RoomConnection | null>(null);
   useEffect(() => {
     const transport = new RoomConnection(session, {
       state: (state, id) => {
         setRoom(state);
-        setPlayerId(id);
+        setIdentityId(id);
       },
       clock: setClockOffset,
       connection: setConnection,
@@ -525,8 +580,8 @@ function RoomView({
       setManualCopy(true);
     }
   }
-  const me = room?.players.find((p) => p.id === playerId);
-  const isHost = room?.hostId === playerId;
+  const me = room?.players.find((p) => p.id === identityId);
+  const isHost = room?.hostRole === "player" && room.hostId === identityId;
   const online = connection === "online";
   const disabled = busy || !online;
   const startReason =
@@ -552,26 +607,52 @@ function RoomView({
         <p>
           {connection === "replaced"
             ? "Folytasd a játékot a másik ablakban, vagy vedd vissza itt a kapcsolatot."
-            : "Ha a szoba még él, új becenévvel visszaléphetsz."}
+            : session.role === "display"
+              ? "A kijelző belépése nem állítható vissza a szobakódból. Ha a szoba még él, a kapcsolódó játékosok folytathatják a partit."
+              : "Ha a szoba még él, új becenévvel visszaléphetsz."}
         </p>
         <button
           className="primary"
           onClick={
-            connection === "replaced" ? () => location.reload() : onRejoin
+            connection === "replaced"
+              ? () => location.reload()
+              : session.role === "display"
+                ? onExit
+                : onRejoin
           }
         >
-          {connection === "replaced" ? "Itt folytatom" : "Új belépés"}
+          {connection === "replaced"
+            ? "Itt folytatom"
+            : session.role === "display"
+              ? "Vissza a főmenübe"
+              : "Új belépés"}
         </button>
-        <button className="text-button" onClick={onExit}>
-          Vissza a főmenübe
-        </button>
+        {(connection === "replaced" || session.role !== "display") && (
+          <button className="text-button" onClick={onExit}>
+            Vissza a főmenübe
+          </button>
+        )}
       </main>
+    );
+  if (room && session.role === "display")
+    return (
+      <DisplayView
+        room={room}
+        identityId={identityId}
+        clockOffset={clockOffset}
+        online={online}
+        connectionLabel={CONNECTION_LABELS[connection]}
+        busy={busy}
+        error={error}
+        storageWarning={storageWarning}
+        onAction={act}
+      />
     );
   if (room?.game)
     return (
       <GameView
         room={room}
-        playerId={playerId}
+        playerId={identityId}
         clockOffset={clockOffset}
         online={online}
         connectionLabel={CONNECTION_LABELS[connection]}
@@ -598,6 +679,14 @@ function RoomView({
           </span>
         </div>
         {error && <Notice>{error}</Notice>}
+        {room?.mode === "tv-party" && (
+          <Notice kind="info">
+            TV Party – A kérdések a közös kijelzőn jelennek meg.
+            {room.hostRole === "player" && isHost
+              ? " Te vagy az új házigazda."
+              : ""}
+          </Notice>
+        )}
         {room?.notice && <Notice kind="info">{room.notice}</Notice>}
         {storageWarning && (
           <Notice kind="info">
@@ -651,7 +740,8 @@ function RoomView({
                     <CharacterPortrait character={p.character} />
                     <div className="player-name">
                       <strong>
-                        {p.nickname} {p.id === playerId && <small>(te)</small>}
+                        {p.nickname}{" "}
+                        {p.id === identityId && <small>(te)</small>}
                       </strong>
                       <span>
                         {c.name}
@@ -734,53 +824,13 @@ function RoomView({
             ? "Te vagy a házigazda. Állítsd össze a partit!"
             : "A házigazda állítja össze a partit."}
         </p>
-        <fieldset disabled={!isHost || disabled || room?.phase !== "lobby"}>
-          <legend>Kérdések száma</legend>
-          <div className="segmented">
-            {([6, 12, 18] as const).map((n) => (
-              <button
-                type="button"
-                key={n}
-                aria-pressed={room?.settings.questionCount === n}
-                onClick={() =>
-                  room &&
-                  void act({
-                    type: "settings",
-                    value: { ...room.settings, questionCount: n },
-                  })
-                }
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        <fieldset disabled={!isHost || disabled || room?.phase !== "lobby"}>
-          <legend>Nehézség</legend>
-          <div className="difficulty-options">
-            {(Object.keys(DIFFICULTIES) as (keyof typeof DIFFICULTIES)[]).map(
-              (d) => (
-                <button
-                  type="button"
-                  key={d}
-                  aria-pressed={room?.settings.difficulty === d}
-                  onClick={() =>
-                    room &&
-                    void act({
-                      type: "settings",
-                      value: { ...room.settings, difficulty: d },
-                    })
-                  }
-                >
-                  <span>{DIFFICULTIES[d]}</span>
-                  <span aria-hidden="true">
-                    {d === "easy" ? "◉○○" : d === "normal" ? "◉◉○" : "◉◉◉"}
-                  </span>
-                </button>
-              ),
-            )}
-          </div>
-        </fieldset>
+        {room && (
+          <SettingsControls
+            room={room}
+            disabled={!isHost || disabled || room.phase !== "lobby"}
+            onAction={act}
+          />
+        )}
         <div className="fixed-rules">
           <span>✦ Kérdésenként egy ingyenes szabotázs</span>
           <span>✦ Kategóriák alapból bekapcsolva</span>

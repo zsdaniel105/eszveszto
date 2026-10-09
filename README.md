@@ -1,17 +1,31 @@
 # Észvesztő ✳
 
-Magyar nyelvű, mobilra tervezett, böngészős kvízparti 2–8 barátnak. Az ötödik mérföldkő valódi takonytörlést, feltörhető jégzárat és többtippes, hibákért pontot levonó döntőt ad a működő szabotázsos kvízhez. Kategóriaszavazás, pontozás, ranglista, dupla pontos döntő és új parti továbbra is szervervezérelt.
+Magyar nyelvű, böngészős kvízparti 2–8 barátnak. A hatodik mérföldkő két játszható módot ad: a megszokott **Normál kvízt**, valamint a **TV Party** közös kijelzőjét és személyes telefonos vezérlőit. Kategóriaszavazás, hat valódi szabotázs, pontozás, többtippes dupla pontos döntő és új parti mindkét módban ugyanazon szervervezérelt játékot használja.
 
 ## Játszható funkciók
 
 - Privát szoba hétkarakteres kóddal vagy meghívóval, nyolc kozmetikai karakterrel.
 - Szinkronizált karakterválasztás, készenlét és házigazdai beállítások: 6/12/18 kérdés, Könnyed/Normál/Nehéz. Az alapérték továbbra is 12 és Normál.
-- Indításhoz 2–8 kapcsolódó, kész játékos szükséges, a házigazdával együtt. Beállításcsere mindenki, karaktercsere a saját készenlétet törli.
+- Indításhoz 2–8 kapcsolódó, kész játékos szükséges. Normál kvízben a házigazda is játékos; TV Partyban a külön kijelző nem foglal helyet és nem jelzi a készenlétét. Beállításcsere mindenki, karaktercsere a saját készenlétet törli.
 - Háromkérdéses blokkonként 8 másodperces szavazás három kategóriára; az idő lejártáig módosítható saját szavazat, többségi győztes, egyenletes véletlen döntetlen esetén.
 - Közös, egyszer megkevert kérdés és négy nagy válaszgomb; 15 másodperces szerverhatáridő. Normál körben egy lezárt válasz; a döntőben a hibás válasz kiesik, és tovább lehet próbálkozni. Korai eredmény csak minden jogosult befejezése után.
 - Normál körben a helyes válasz 100 + 0–50 gyorsasági pont, hibás vagy hiányzó válasz 0. Az utolsó 2/3/4 kérdés a 6/12/18 kérdéses partiban többtippes döntő: `(100 − 30 × hibás tippek + gyorsaság) × 2`, csak helyes megoldásra.
 - Minden kérdés után 4 másodperc eredmény és 4 másodperc ranglista; összesített pontok, közös helyezés döntetlennél, saját pontosság és átlagos válaszidő a végén.
 - Házigazda által engedélyezett új parti ugyanabban a szobában: identitások, karakterek és beállítások maradnak, pontok és válaszok törlődnek, ismét készen kell állni.
+
+## Normál kvíz vagy TV Party
+
+A „Játék létrehozása” két szerepkártyát mutat. **Játékosként / Normál kvíz** az alapértelmezés: a létrehozó becenevet és karaktert választ, házigazdaként játszik, mindenki saját eszközén látja a kérdést és a válaszokat. Régi szobák és elmentett belépések automatikusan ezt használják.
+
+**Kijelzőként / TV Party**: a TV/laptop böngészője becenév és karakter nélkül hoz létre először üres szobát. A nagy kijelző hétkarakteres kódot, valódi QR-kódot és a jelenlegi eredet `/join/<kód>` meghívóját mutatja. A QR helyben készül a kis `qrcode-generator` könyvtárral; nincs külső QR-szolgáltatás vagy belépési titok a meghívóban. A telefonok a meglévő belépési űrlapon választanak nevet/karaktert, majd készen állnak. A kijelző nyolc **valódi** játékos mellett is külön kapcsolat marad.
+
+A kijelző házigazdaként beállítja a kérdésszámot/nehézséget, indít és új partit nyit; nem szavaz, támad, tör jeget, válaszol vagy kap pontot. Nagy képernyős előszoba, kategóriák és szavazási haladás, szabotázs-várakozás, lezárt támadásbemutató, domináns kérdés/idő, helyes megoldás/magyarázat, teljes ranglista és végső győztesek követik az élő WebSocket-állapotot. Opcionális, valódi Fullscreen API vezérlő egérrel/billentyűzettel működik; nem szükséges teljes képernyőre váltani.
+
+TV Party kérdés alatt a telefon alapból a négy nagy válaszgombot, időt, saját pontot és szabotázst mutatja. A kérdésszöveg helyett nem marad üres terület. A „Kérdés mutatása” egyéni, helyben mentett megjelenítési választás; nem változtat szabályt/pontot. A takony söprése, jég koppintásai, helycserék, fejre állítás, tinta és rulett a telefonon működnek. Döntőben csak a saját rossz tipp esik ki, ugyanazzal a levonásos pontozással. A telefon ranglistája személyes összesítés, a kijelző a közös eredménytábla.
+
+**Kapcsolatvesztés:** amint a szerver offline kijelzőt jelez, a telefon automatikusan megmutatja a kérdést. Visszatéréskor ismét válaszokra fókuszál, kivéve, ha a játékos külön kérte a kérdés mutatását. A szerver 90 mp észlelt kapcsolatvesztésig fenntartja a kijelző házigazdai szerepét, utána a legkorábban belépett, kapcsolódó, jogosult játékos kapja meg. A visszatérő kijelző ekkor néző, nem veszi vissza a vezérlést. Kifejezett „Kijelző bezárása” azonnal visszavonja a kijelző belépését és átadja a szerepet. Idők, pontok és parti közben is továbbhaladó alarmok változatlanok. Aktív kijelző megtartja a játékos nélküli előszobát, de 2 óra tétlenség / 24 óra szobakor továbbra is lejárat.
+
+Mód, kapcsolati szerep és házigazdai jogosultság külön mező. A kijelző saját 256 bites titkához csak hash tárolódik; szerepkötött hitelesítés és minden művelet szerveres jogosultságvizsgálata védi. A kijelző állapotából kimaradnak a saját játékosadatok, privát ajánlatok/célzások/hatások/tippek és a lezárás előtti megoldás. A közös hangokat a kijelző játssza, telefonon személyes visszajelzés marad; mindkettő némítható és felhasználói gesztushoz kötött. Magyar kérdésfelolvasás későbbi lehetőség, ebben a PR-ban nincs TTS. [Részletes mód- és szerepszerződés](docs/game-design.md#pr-6-két-játékmód-kijelző-és-telefonos-vezérlők).
 
 ## Működő szabotázs
 
@@ -67,9 +81,10 @@ A fejléc Hang/Néma gombja a főoldaltól az új partiig elérhető. Egy közpo
 
 ## Architektúra
 
-React + TypeScript + Vite frontend, egyazon eredetű Cloudflare Worker API és assetkiszolgálás. Szobánként egy SQLite-alapú Durable Object, hibernálható WebSocketekkel és személyre vetített állapotüzenetekkel. Böngészőtár a visszatérési belépést és a saját folttörlés vizuális előrehaladását tárolja. A játék szabályait és határidejét a szerver tárolja.
+React + TypeScript + Vite frontend, egyazon eredetű Cloudflare Worker API és assetkiszolgálás. Szobánként egy SQLite-alapú Durable Object, hibernálható, szerepkötött WebSocketekkel és játékos/kijelző szerint vetített állapotüzenetekkel. Böngészőtár a visszatérési belépést, egyéni kérdésmutatást és a saját folttörlés vizuális előrehaladását tárolja. A játék szabályait és határidejét a szerver tárolja.
 
 - `src/client`: előszoba, fókuszált játékképernyők, stílusok, kapcsolat és óraeltérés.
+- `src/client/DisplayView.tsx`, `JoinQr.tsx`, `FullscreenControl.tsx`: közös kijelző, helyi QR-meghívó és valódi teljes képernyő; `SettingsControls.tsx` mindkét előszoba meglévő beállításait használja.
 - `src/shared/sabotage.ts`: hat képesség központi leírása, korlátok és stabil válasz-megjelenítési projekció.
 - `src/server/sabotage.ts`: ajánlatok, célpontellenőrzés, támadásnyilvántartás, összevonás és saját nyilvános állapot.
 - `src/client/SabotageView.tsx`, `QuestionEffects.tsx`: mobil választás/célzás és valódi interaktív hatások.
@@ -99,7 +114,7 @@ GitHub → Codex Cloud → pull request → Cloudflare Workers Builds. A tulajdo
 
 1. Node.js 24 (`NODE_VERSION=24`), build: `npm ci && npm run build`, deploy: `npx wrangler deploy`. A Vite plugin Worker csomagot és deploy-konfigurációt ad; Wrangler követi a `.wrangler/deploy/config.json` fájlt.
 2. A Worker neve, éles `ROOMS`, `ASSETS`, `ROOM_LIMITER` és a `v1` SQLite-migráció változatlan. Nincs új éles infrastruktúra, adatbázis, fizetős szolgáltatás vagy titokigény. Feature ágakon a Workers Builds `npx wrangler preview` parancsot használhat: a `previews` blokk külön deklarálja a helyi `Room` osztályra mutató `ROOMS` bindingot, így minden preview saját Durable Object névteret és tárolást kap. A preview `ROOM_LIMITER` névtere `1002`, az éles `1001` marad; a preview-k közös, éles forgalomtól elkülönített rate-limit névteret használnak. Assetek és migráció a felső szintről származnak. [Cloudflare preview-erőforrások és izoláció](https://developers.cloudflare.com/workers/previews/resources/#durable-objects).
-3. Tárolási séma: additív `schemaVersion: 4`. A 2-es/3-as előszobák és aktív kvízek identitásai, pontjai, válaszai, kör/fázisazonosítói és abszolút határidői megmaradnak. Új mezők: kérdésenkénti válaszpolitika, saját döntőtipp-történetek és jégtörési haladás; a hatások külön mozgászárat és koppintásszámot kapnak. Már előkészített régi kérdés (akár döntő) egyválaszos marad, a következő előkészített döntőkérdés többtippes. Hiányzó régi szabotázs `null`; az első PR kérdés nélküli sessionje továbbra is egyszer tér vissza előszobába. Nincs SQLite-osztályváltás vagy destruktív migráció.
+3. Tárolási séma: additív `schemaVersion: 5`. A 2-es/3-as/4-es szoba Normál kvízre alapértelmeződik (`mode: normal`, `hostRole: player`, `display: null`). Identitás, karakter, beállítás, pont, kérdés/opció, válasz/tipptörténet, jéghaladás, szabotázs, kör/fázisazonosító és abszolút határidő marad. A korábbi additív válaszpolitika-/jégmezők továbbra is pótolhatók; előkészített régi egyválaszos kérdést nem írunk át. Régi játékos-session és hibernált, csak `playerId`-s kapcsolati attachment is érvényes. Az első PR kérdés nélküli sessionje továbbra is egyszer tér vissza előszobába. Nincs SQLite-osztályváltás vagy destruktív migráció.
 4. Tartalomfrissítésnél a kérdés-ID-kat őrizni kell, mert aktív parti hivatkozhat rájuk. A 24 órás szobakor felső korlátot ad ennek az átmenetnek.
 5. A kódolási munkamenet csak helyi buildet és Wrangler deploy dry runt ellenőriz; **nem végzett éles telepítést**. A PR automatikusan nem kerül beolvasztásra.
 
@@ -142,3 +157,9 @@ A hangok a meglévő némítható vezérlőt használják: takonyérkezés, korl
 PR #5 ellenőrzése: **127 sikeres szabály-/Workers-teszt és 6 sikeres Chromium-teszt**; ESLint, TypeScript, éles build és Wrangler deploy dry run sikeres. Két-/nyolcklienses teljes parti, jégtörés, valódi maszktörlés, döntőtipp utáni reconnect és pontos levonásos pontozás ellenőrzött. [Tényleges képek](docs/screenshots/README.md#pr-5--tényleges-maszktörlés). Éles telepítés és fizikai telefonos teszt nem történt.
 
 Részletes megvalósítás, migráció, tesztek és korlátok: [PR #5 szabályok](docs/game-design.md#pr-5-interaktív-hatások-és-döntő). Következő ajánlott PR: valódi iOS/Android és társas teszt, a törlési/jégtörési nehézség hangolása, külön tartalmi audit.
+
+## PR #6 ellenőrzése és következő lépés
+
+**167 sikeres szabály-/Workers-teszt és 9 sikeres Chromium-böngészőteszt**; `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` és Wrangler deploy dry run sikeres. A teljes böngészőfutás 5,6 perc, valódi fázisidőkkel. A korábbi Normál kvíz tesztjei megmaradtak, két- és nyolcklienses teljes partival. Az új tesztek hitelesített kijelzőt és két telefon teljes hatkérdéses partiját, QR-dekódolást, privát adatokat, takony/jégtörést, döntőlevonást, refresh/fallbackot, rematchet, továbbá nyolc telefont és hét valódi támadást egy célpontra ellenőriznek. Role-forgery, host-átadás, régi attachment/séma, üres szoba és idle/abszolút lejárat a Workers-runtime-ban is tesztelt.
+
+[Tényleges TV- és mobilképek](docs/screenshots/README.md#pr-6--közös-kijelző-és-telefonos-vezérlők). 1920×1080, 1366×768, 1280×720, 1024×768 és 320/375/390/430 px telefonnézet ellenőrzött. **Fizikai TV/iOS/Android teszt és kézi éles telepítés nem történt.** A teljes képernyő és autoplay böngészőfüggő, a QR távolsági olvashatóságához készülékpróba kell. Különösen rövid kijelző vagy nagyított szöveg belső panelgörgetést használhat; a vezérlők hozzáférhetők maradnak. Következő ajánlott mérföldkő: valódi TV + telefon társas játékpróba, akadálymentességi/kapcsolatvesztési vizsgálat és balanszhangolás; utána külön, időzítési termékdöntéssel magyar kijelzőoldali kérdésfelolvasás. Tartalmi audit külön munka marad.

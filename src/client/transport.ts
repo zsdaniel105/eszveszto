@@ -78,6 +78,7 @@ export class RoomConnection {
         JSON.stringify({
           type: "authenticate",
           credential: this.session.credential,
+          role: this.session.role ?? "player",
         }),
       );
     };
@@ -101,7 +102,10 @@ export class RoomConnection {
           this.clockReady = true;
           this.ping();
         }
-        this.callbacks.state(message.room, message.playerId);
+        this.callbacks.state(
+          message.room,
+          message.identityId ?? message.playerId,
+        );
         if (!this.heartbeat)
           this.heartbeat = setInterval(() => {
             if (Date.now() - this.lastMessage > 55_000) {
@@ -147,9 +151,8 @@ export class RoomConnection {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            nickname: "Újracsatlakozó",
-            character: "paca",
             credential: this.session.credential,
+            role: this.session.role ?? "player",
           }),
         })
           .then(async (r) => {
@@ -240,8 +243,11 @@ export function readSession(code?: string): Session | null {
     ) as Session | null;
     return session &&
       /^[A-HJ-NP-Z2-9]{7}$/.test(session.code) &&
-      /^[A-Za-z0-9_-]{43}$/.test(session.credential)
-      ? session
+      /^[A-Za-z0-9_-]{43}$/.test(session.credential) &&
+      (session.role === undefined ||
+        session.role === "player" ||
+        session.role === "display")
+      ? { ...session, role: session.role ?? "player" }
       : null;
   } catch {
     return null;

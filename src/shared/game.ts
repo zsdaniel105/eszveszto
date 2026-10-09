@@ -1,4 +1,16 @@
-import type { AbilityId, PublicSabotage } from "./sabotage";
+import type { AbilityId, AttackRecord, PublicSabotage } from "./sabotage";
+export type GameMode = "normal" | "tv-party";
+export type ConnectionRole = "player" | "display";
+export interface Identity {
+  role: ConnectionRole;
+  id: string;
+}
+export interface Display {
+  id: string;
+  connected: boolean;
+  disconnectedAt: number | null;
+  graceExpired: boolean;
+}
 export const CHARACTERS = [
   {
     id: "maffiamacska",
@@ -101,6 +113,9 @@ export interface Player {
   disconnectedAt: number | null;
 }
 export interface PublicRoom {
+  mode: GameMode;
+  hostRole: ConnectionRole;
+  display: Display | null;
   id: string;
   code: string;
   phase: GamePhase;
@@ -128,13 +143,21 @@ export type Action =
   | ({ type: "ice-tap" } & PhaseContext)
   | { type: "rematch"; sessionId: string; phaseId: string };
 export type ServerMessage =
-  | { type: "state"; room: PublicRoom; playerId: string; serverTime: number }
+  | {
+      type: "state";
+      room: PublicRoom;
+      playerId: string;
+      identityId?: string;
+      role?: ConnectionRole;
+      serverTime: number;
+    }
   | { type: "ack"; requestId: string }
   | { type: "pong"; serverTime: number }
   | { type: "error"; message: string; code: string; requestId?: string };
 export interface Session {
   code: string;
   credential: string;
+  role?: ConnectionRole; // Missing on a saved legacy player session.
 }
 export const characterById = (id: CharacterId) =>
   CHARACTERS.find((c) => c.id === id)!;
@@ -242,6 +265,8 @@ export interface RoundResult {
   players: AnswerResult[];
 }
 export interface PublicGame extends PhaseContext {
+  votedPlayerIds: string[];
+  sharedAttacks: AttackRecord[];
   startedAt: number;
   deadline: number | null;
   totalQuestions: QuestionCount;

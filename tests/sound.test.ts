@@ -8,7 +8,9 @@ import { roomSoundEvents } from "../src/client/useRoomSounds";
 import {
   applyAction,
   createRoom,
+  createDisplayRoom,
   joinRoom,
+  makeDisplay,
   makePlayer,
   publicRoom,
 } from "../src/server/model";
@@ -136,6 +138,94 @@ function roomFixture() {
   return { room, host, guest, now };
 }
 describe("truthful multiplayer sound events", () => {
+  it("plays shared TV announcements only on the Display and personal feedback only on controllers", () => {
+    const { host, guest, now } = roomFixture();
+    const display = makeDisplay("display-hash", now);
+    display.connected = true;
+    const room = createDisplayRoom("TVAB234", display, now);
+    joinRoom(room, host);
+    joinRoom(room, guest);
+    room.settings.questionCount = 6;
+    host.ready = guest.ready = true;
+    const identity = { role: "display" as const, id: display.id };
+    let beforeDisplay = publicRoom(room, identity),
+      beforePhone = publicRoom(room, guest.id);
+    function check(displayCues: SoundCue[], phoneCues: SoundCue[]) {
+      const screen = publicRoom(room, identity),
+        phone = publicRoom(room, guest.id);
+      expect(
+        roomSoundEvents(beforeDisplay, screen, display.id).map((e) => e.cue),
+      ).toEqual(displayCues);
+      expect(
+        roomSoundEvents(beforePhone, phone, guest.id).map((e) => e.cue),
+      ).toEqual(phoneCues);
+      for (const [snapshot, id] of [
+        [screen, display.id],
+        [phone, guest.id],
+      ] as const) {
+        expect(roomSoundEvents(snapshot, snapshot, id)).toEqual([]);
+        expect(roomSoundEvents(null, snapshot, id)).toEqual([]);
+      }
+      beforeDisplay = screen;
+      beforePhone = phone;
+    }
+    applyAction(room, identity, { type: "start", settingsRevision: 1 }, now);
+    check(["category"], []);
+    const q = room.quiz!;
+    const context = () => ({
+      sessionId: q.sessionId,
+      phaseId: q.phaseId,
+      round: q.round,
+    });
+    applyAction(
+      room,
+      guest.id,
+      { type: "vote", categoryId: q.categoryOptions[0], ...context() },
+      now + 1,
+    );
+    check([], ["vote"]);
+    advanceQuiz(room, q.deadline!);
+    check(["sabotage"], []);
+    applyAction(
+      room,
+      host.id,
+      {
+        type: "attack",
+        abilityId: q.sabotage!.offers[host.id][0],
+        targetId: guest.id,
+        ...context(),
+      },
+      q.phaseStartedAt + 1,
+    );
+    applyAction(
+      room,
+      guest.id,
+      { type: "skip-attack", ...context() },
+      q.phaseStartedAt + 2,
+    );
+    check(["attack"], ["attack"]);
+    advanceQuiz(room, q.deadline!);
+    check(["question"], []);
+    applyAction(
+      room,
+      host.id,
+      { type: "answer", optionIndex: q.correctIndex, ...context() },
+      q.phaseStartedAt + 2100,
+    );
+    applyAction(
+      room,
+      guest.id,
+      { type: "answer", optionIndex: q.correctIndex, ...context() },
+      q.phaseStartedAt + 2200,
+    );
+    check(["rank"], ["correct"]);
+    advanceQuiz(room, q.deadline!);
+    check(["rank"], []);
+    while (room.phase !== "finale") advanceQuiz(room, q.deadline!);
+    check(["finale"], []);
+    advanceQuiz(room, q.phaseStartedAt + 3_600_000);
+    check(["winner"], []);
+  });
   it("uses only confirmed own ice/guess progress and awards finale points once", () => {
     const { room, host, guest, now } = roomFixture();
     host.ready = guest.ready = true;

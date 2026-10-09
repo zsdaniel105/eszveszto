@@ -530,7 +530,7 @@ describe("real Worker and Durable Object transport", () => {
     const stored = (await runInDurableObject(stub, async (_instance, ctx) =>
       ctx.storage.get<StoredRoom>("room"),
     ))!;
-    expect(stored.schemaVersion).toBe(4);
+    expect(stored.schemaVersion).toBe(5);
     expect(stored.quiz).toBeNull();
   });
   it("accounts for seven mixed attacks, deduplicates requests, restores offers and effects, and enforces Freeze in the real Worker", async () => {

@@ -678,6 +678,7 @@ export function quizAction(
 export function publicQuiz(
   room: StoredRoom,
   viewerId?: string,
+  display = false,
 ): PublicGame | null {
   const q = room.quiz;
   if (!q) return null;
@@ -697,6 +698,11 @@ export function publicQuiz(
         }
       : null;
   return {
+    votedPlayerIds: Object.keys(q.votes),
+    sharedAttacks:
+      display && q.sabotage?.resolved
+        ? q.sabotage.attacks.map((a) => ({ ...a }))
+        : [],
     sessionId: q.sessionId,
     phaseId: q.phaseId,
     round: q.round,
