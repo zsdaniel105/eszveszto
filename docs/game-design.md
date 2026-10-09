@@ -308,3 +308,11 @@ Fizikai TV, iPhone vagy Android készülék nem volt tesztelve: a képek Chromiu
 ESLint, TypeScript, termékbuild, teljes Vitest/E2E és Wrangler deploy dry run sikeres. 1920×1080/1366×768/1280×720/1024×768 kijelző és 320/375/390/430 px telefon: vízszintes túlcsordulás/dokumentumgörgetés, érintési minimum, tényleges QR-render, alapból hiányzó telefonos prompt, stabil finale-gombrács és nyolcfős megjelenítés is ellenőrzött. [Ellenőrzött tényleges képek](screenshots/README.md#pr-6--közös-kijelző-és-telefonos-vezérlők). Nem fizikai készülékpróba és nem kézi éles deploy.
 
 Ajánlott következő PR: valódi TV/laptop + iOS/Android társas játékpróba, hozzáférhetőség, Wi-Fi/alvás/reconnect és QR távolsági kalibráció. Magyar narration külön mérföldkő, a kijelzőoldali cserefelületen és külön jóváhagyott időzítési szabállyal. Kérdésbank/content audit továbbra is önálló feladat; ez a PR nem ad új kérdést, karaktert, képességet vagy szolgáltatást.
+
+### PR #6 utóellenőrzés: stabil válaszgomb-jelzés
+
+A beolvasztás után befejeződő GitHub CI valódi TV-controller hibát talált: egy hosszabb döntőválaszhoz hozzáadott ✕ flex-elem néhány pixellel növelhette a sor magasságát, eltolva a következő gombsort. A ✓/✕ külön jelzőosztályt kapott; kizárólag TV controllerben abszolút pozíció a gomb sarkában, ezért nem változtatja az opciós rács méretét. Normál kvíz megjelenítése és az összes szerveres szabály változatlan, nincs új séma vagy időzár.
+
+A böngészőteszt pontos x/y/szélesség/magasság ellenőrzése megmaradt, nem lett toleranciával gyengítve. A leghosszabb valóban kiosztott hibás opciót választja, és a rögzített helyes tipp jelzését is ellenőrzi. A meglévő szándékos fázis-/helyesválasz-animáció végét megvárja, a tartós gombgeometria előtt; a hibás opció méretét azonnal ellenőrzi. Valódi kvíz, tippek és pontok, új tesztkapu nélkül.
+
+A javítás ellenőrzése: ESLint, TypeScript, 167 szabály-/Workers-teszt, termékbuild, 9 Chromium-forgatókönyv (5,5 perc) és Wrangler deploy dry run sikeres. Pontozás, állapotgép, válaszidentitás és infrastruktúra változatlan.
