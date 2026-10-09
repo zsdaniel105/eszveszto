@@ -10,7 +10,13 @@ export type SoundCue =
   | "wrong"
   | "rank"
   | "finale"
-  | "winner";
+  | "winner"
+  | "slime-arrive"
+  | "slime-wipe"
+  | "slime-complete"
+  | "ice-crack"
+  | "ice-shatter"
+  | "finale-points";
 // Replace these modest original motifs with a licensed asset backend later.
 const motifs: Record<SoundCue, number[]> = {
   select: [523],
@@ -25,6 +31,12 @@ const motifs: Record<SoundCue, number[]> = {
   rank: [587, 740, 880],
   finale: [392, 523, 659, 784],
   winner: [523, 659, 784, 1047],
+  "slime-arrive": [220, 165],
+  "slime-wipe": [196],
+  "slime-complete": [440, 587],
+  "ice-crack": [988],
+  "ice-shatter": [988, 740, 523],
+  "finale-points": [659, 784, 988],
 };
 export interface SoundBackend {
   unlock(): Promise<void>;
@@ -142,7 +154,7 @@ export class SoundController {
     const now = this.now();
     // One motif at a time. Decorative taps never interrupt confirmed feedback.
     if (
-      cue === "select" &&
+      (cue === "select" || cue === "slime-wipe") &&
       (now - this.lastPlayedAt < 140 || now < this.feedbackUntil)
     )
       return;

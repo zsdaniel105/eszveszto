@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
+import { QUESTIONS } from "../../src/server/questions";
 
 export async function anchored(page: Page) {
   await expect(page.locator("body")).toHaveAttribute("data-gameplay", "");
@@ -204,7 +205,19 @@ test("eight independent mobile players can reach offers, seven targets, answers 
       await Promise.all(
         (round === 1 ? pages.slice(1) : pages).map(async (page) => {
           await expect(page.locator('[data-phase="question"]')).toBeVisible();
-          const answer = page.locator(".answer-card").first();
+          let answer = page.locator(".answer-card").first();
+          if (round >= 5) {
+            const prompt = await page.locator(".question-prompt").innerText();
+            const item = QUESTIONS.find((q) => q.prompt === prompt)!;
+            if (item.type !== "text") throw new Error("Expected text question");
+            answer = page
+              .locator(".answer-card")
+              .filter({
+                has: page.getByText(item.options[item.correctIndex], {
+                  exact: true,
+                }),
+              });
+          }
           await expect(answer).not.toHaveAttribute("aria-disabled", "true", {
             timeout: 3500,
           });

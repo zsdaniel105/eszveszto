@@ -2,6 +2,7 @@ import { abilityById, type AbilityId } from "../../src/shared/sabotage";
 import { expect, test } from "@playwright/test";
 import { QUESTIONS } from "../../src/server/questions";
 import type { PublicRoom } from "../../src/shared/game";
+import { alphaPixels, wipe } from "./interactions";
 
 test("two mobile browsers play six real questions, reconnect, finish and start a rematch", async ({
   browser,
@@ -82,10 +83,14 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
       }
       if (round === 5) {
         await expect(
-          host.getByRole("heading", { name: "ITT A DÖNTŐ!" }),
+          host.getByRole("heading", {
+            name: "🔥 DÖNTŐ – TÖBB ESÉLY, KEVESEBB PONT!",
+          }),
         ).toBeVisible({ timeout: 10_000 });
         await expect(
-          guest.getByRole("heading", { name: "ITT A DÖNTŐ!" }),
+          guest.getByRole("heading", {
+            name: "🔥 DÖNTŐ – TÖBB ESÉLY, KEVESEBB PONT!",
+          }),
         ).toBeVisible();
       }
       for (const page of [host, guest])
@@ -100,6 +105,17 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
             () => document.documentElement.scrollWidth <= innerWidth,
           ),
         ).toBe(true);
+      }
+      if (round === 1) {
+        const code = snapshots.host!.code;
+        const response = await host.request.post(`/__fixture/${code}`);
+        expect(response.ok()).toBe(true);
+        await expect
+          .poll(() => snapshots.host!.game!.sabotage!.offers[0])
+          .toBe("freeze");
+        await expect
+          .poll(() => snapshots.guest!.game!.sabotage!.offers[0])
+          .toBe("slime");
       }
       if (round === 1) {
         const before = [...snapshots.host!.game!.sabotage!.offers];
@@ -225,7 +241,20 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
               "Fagyasztás",
             );
             await expect(page.locator(".answer-card").first()).toBeDisabled();
-            await page.locator(".answer-card").first().click({ force: true });
+            for (let n = 0; n < 3; n++) {
+              await page.locator(".ice-barrier").click();
+              if (n < 2) await page.waitForTimeout(110);
+            }
+            await expect
+              .poll(
+                () =>
+                  (page === host ? snapshots.host : snapshots.guest)!.game!
+                    .myIce?.acceptedTaps,
+              )
+              .toBe(3);
+            await expect(page.locator(".ice-barrier")).toHaveClass(
+              /ice-shattered/,
+            );
             await expect(
               page.locator(".answer-card[aria-pressed=true]"),
             ).toHaveCount(0);
@@ -256,15 +285,34 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
             );
           }
           if (ability === "slime") {
-            const count = await page.locator(".slime-patch").count();
+            const patches = page.locator(".wipe-patch:not(.is-clean)");
+            const count = await patches.count();
             expect(count).toBe(2);
-            await page.locator(".slime-patch").first().tap();
-            await expect(page.locator(".slime-patch")).toHaveCount(count - 1);
+            const canvas = patches.first().locator("canvas");
+            const before = await alphaPixels(canvas);
+            await canvas.tap();
+            expect(await alphaPixels(canvas)).toBe(before);
+            await wipe(page, canvas, 0.35, true);
+            const partial = await alphaPixels(canvas);
+            expect(partial).toBeLessThan(before);
+            await expect(patches).toHaveCount(2);
             await page.reload();
-            await expect(page.locator(".slime-patch")).toHaveCount(count - 1);
-            await page.locator(".slime-patch").first().focus();
+            await expect(patches).toHaveCount(2);
+            expect(await alphaPixels(patches.first().locator("canvas"))).toBe(
+              partial,
+            );
+            await wipe(page, patches.first().locator("canvas"), 0.65);
+            await expect(patches).toHaveCount(1);
+            const fallback = patches.first().getByRole("button");
+            await fallback.focus();
+            for (let n = 0; n < 3; n++) await page.keyboard.press("Enter");
+            await expect(patches).toHaveCount(1);
             await page.keyboard.press("Enter");
-            await expect(page.locator(".slime-patch")).toHaveCount(0);
+            await expect(patches).toHaveCount(0);
+            expect(await page.evaluate(() => window.scrollY)).toBe(0);
+            await expect(
+              page.locator(".answer-card[aria-pressed=true]"),
+            ).toHaveCount(0);
           }
           if (ability === "ink") {
             await expect(page.locator(".ink-patch")).toHaveCount(2);
@@ -324,7 +372,10 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
           fullPage: true,
         });
       }
-      await host.locator(".answer-card").filter({ hasText: correct }).click();
+      await host
+        .locator(".answer-card")
+        .filter({ has: host.getByText(correct, { exact: true }) })
+        .click();
       await expect(
         host.getByText("✓ Válaszod rögzítve. Várjuk a többieket!", {
           exact: true,
@@ -344,8 +395,29 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
       }
       await guest
         .locator(".answer-card")
-        .filter({ hasText: round === 1 ? correct : wrong })
+        .filter({
+          has: guest.getByText(round === 1 ? correct : wrong, { exact: true }),
+        })
         .click();
+      if (round >= 5) {
+        await expect(guest.locator(".answer-card.eliminated")).toHaveCount(1);
+        await expect(
+          guest.getByText(/Nem talált! Próbáld újra!/),
+        ).toBeVisible();
+        const before = snapshots.guest!.game!.myFinale;
+        expect(snapshots.host!.game!.myFinale!.wrongAttempts).toBe(0);
+        expect(JSON.stringify(snapshots.guest!.game)).not.toContain(
+          "correctIndex",
+        );
+        await guest.reload();
+        await expect(guest.locator(".answer-card.eliminated")).toHaveCount(1);
+        expect(snapshots.guest!.game!.myFinale).toEqual(before);
+        await expect(guest.locator(".answer-card")).toHaveCount(4);
+        await guest
+          .locator(".answer-card")
+          .filter({ has: guest.getByText(correct, { exact: true }) })
+          .click();
+      }
       for (const page of [host, guest])
         await expect(page.locator('[data-phase="results"]')).toBeVisible();
       const hostResult = snapshots.host!.game!.result!.players.find(
@@ -356,7 +428,12 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
       )!;
       expect(hostResult.correct).toBe(true);
       expect(hostResult.multiplier).toBe(round >= 5 ? 2 : 1);
-      expect(guestResult.correct).toBe(round === 1);
+      expect(guestResult.correct).toBe(round === 1 || round >= 5);
+      if (round >= 5) {
+        expect(guestResult.wrongAttempts).toBe(1);
+        expect(guestResult.basePoints).toBe(70);
+        expect(guestResult.total).toBe((70 + guestResult.speedBonus) * 2);
+      }
       hostScore += hostResult.total;
       guestScore += guestResult.total;
       await expect(host.locator(".earned strong")).toHaveText(
@@ -389,12 +466,12 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
     expect(ranking[0].score).toBe(hostScore);
     expect(ranking[0].correctAnswers).toBe(6);
     expect(ranking[1].score).toBe(guestScore);
-    expect(ranking[1].correctAnswers).toBe(1);
+    expect(ranking[1].correctAnswers).toBe(3);
     await expect(host.locator(".personal-summary")).toContainText(
       "6/6 helyes válasz · 100% pontosság",
     );
     await expect(guest.locator(".personal-summary")).toContainText(
-      "1/6 helyes válasz · 17% pontosság",
+      "3/6 helyes válasz · 50% pontosság",
     );
     await host.screenshot({
       path: testInfo.outputPath("final-mobile.png"),

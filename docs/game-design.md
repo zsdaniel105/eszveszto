@@ -38,23 +38,23 @@ Az inicializálás a szerver indítási tranzakciójában hozza létre a munkame
 
 Ezek működő implementációs döntések, későbbi termékhangolással változhatnak:
 
-| Fázis/szabály                         | Alapérték                           |
-| ------------------------------------- | ----------------------------------- |
-| Kategóriaszavazás                     | 8 mp, egy módosítható szavazat      |
-| Szabotázsválasztás + célzás           | közös 10 mp, egyszeri döntés        |
-| Támadásbemutató                       | 1,5 mp, nincs jóváhagyó gomb        |
-| Kérdés                                | 15 mp, egy zárolt válasz            |
-| Eredmény                              | 4 mp                                |
-| Ranglista                             | 4 mp                                |
-| Döntő bejelentése                     | egyszer 2 mp                        |
-| Döntő hossza 6 / 12 / 18 kérdésnél    | 2 / 3 / 4 kérdés                    |
-| Helyes válasz                         | 100 + 0–50 gyorsasági pont          |
-| Hibás/kihagyott/határidőn túli válasz | 0 pont                              |
-| Döntő szorzó                          | 2 az alappont és a bónusz összegére |
+| Fázis/szabály                         | Alapérték                            |
+| ------------------------------------- | ------------------------------------ |
+| Kategóriaszavazás                     | 8 mp, egy módosítható szavazat       |
+| Szabotázsválasztás + célzás           | közös 10 mp, egyszeri döntés         |
+| Támadásbemutató                       | 1,5 mp, nincs jóváhagyó gomb         |
+| Kérdés                                | 15 mp, normál: egy; döntő: több tipp |
+| Eredmény                              | 4 mp                                 |
+| Ranglista                             | 4 mp                                 |
+| Döntő bejelentése                     | egyszer 2 mp                         |
+| Döntő hossza 6 / 12 / 18 kérdésnél    | 2 / 3 / 4 kérdés                     |
+| Helyes válasz                         | 100 + 0–50 gyorsasági pont           |
+| Hibás/kihagyott/határidőn túli válasz | 0 pont                               |
+| Döntő szorzó                          | 2 az alappont és a bónusz összegére  |
 
 Szavazásnál a legtöbb szavazat nyer; döntetlennél a holtversenyben állók, szavazat nélkül mindhárom ajánlat közül egyenletes kriptográfiai véletlen választ. Szavazatok játékos-ID szerint felülíródnak, nem összeadódnak. Összesített szavazatszám a határidő után nyilvános, a saját választás közben is látható. A nyertes téma a következő három kérdésre érvényes. Új ajánlat előnyben, ismétlés csak szükség esetén. Ajánlathoz legalább három még nem használt publikált kérdés szükséges.
 
-Gyorsaság: `e = floor((szerver_beérkezés − kérdéskezdés) / 1000)`; `b = floor(50 × max(0, 14 − e) / 14)`; helyes pont `(100 + b) × szorzó`. Az első 1 mp 50, az utolsó 1 mp 0 bónuszt ad, a határidő kizáró. A szerver átvételi ideje számít, kliensóra nem; hálózati késéshez nincs rejtett kompenzáció. A kliens óraeltérés-becslést és ping/pongot használ a kijelzéshez, nem pontozáshoz.
+Gyorsaság: `e = floor((szerver_beérkezés − kérdéskezdés) / 1000)`; `b = floor(50 × max(0, 14 − e) / 14)`; normál helyes pont `100 + b`; döntő: `(100 − 30 × hibás tippek + b) × 2`. A döntő gyorsasági ideje az első helyes tipp fogadása. Az első 1 mp 50, az utolsó 1 mp 0 bónuszt ad, a határidő kizáró. A szerver átvételi ideje számít, kliensóra nem; hálózati késéshez nincs rejtett kompenzáció. A kliens óraeltérés-becslést és ping/pongot használ a kijelzéshez, nem pontozáshoz.
 
 Pontszámok halmozódnak, döntő előtt nincs nullázás. Egy kör lezárása egyszer ad jutalmat; munkamenet-, kör- és fázisazonosító köt minden szavazatot/választ az aktuális állapothoz. Ugyanazon kérés ismétlése visszaigazolható; új kérés-ID sem nyitja fel a már rögzített választ.
 
@@ -62,14 +62,14 @@ Pontszámok halmozódnak, döntő előtt nincs nullázás. Egy kör lezárása e
 
 A központi regiszter `src/shared/sabotage.ts`; az összevonás `src/server/sabotage.ts`. Az alábbiak megvalósult, kezdeti hangolási értékek, játékosokkal még nem kalibrált végleges szabályok.
 
-| Stabil ID / magyar név         | Mechanika                                                                                                                                | Több azonos támadás                                                         |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `slime` / Takonybomba          | Organikus zöld foltok a kérdés/válaszok kis részein. Egy koppintás, kattintás vagy Enter eltávolít egy foltot.                           | `min(3, 1 + ceil(támadásszám / 2))` folt; egy támadás 2 folt.               |
-| `freeze` / Fagyasztás          | Jeges keret és egyértelmű visszaszámlálás. A szerver és a kliens is tiltja az induláskori beküldést.                                     | 1/2/3/4+ támadás: 1200/1600/1800/2000 ms.                                   |
-| `shuffle` / Káosz              | Tényleges, célpontspecifikus helycsere a megjelent válaszokon 650 ms-nél; 200 ms rendeződési jelzés.                                     | 2+ támadásnál még egy helycsere 1250 ms-nél. Zár feloldása 850/1450 ms-nél. |
-| `upside-down` / Feje tetejére! | Csak a válaszszöveg fordul 180°-kal; kérdés, gombhely, időmérő és navigáció nem. Automatikusan visszaáll.                                | 3000 ms + 500 ms minden további támadásra, maximum 4000 ms.                 |
-| `ink` / Tintapaca              | Sötét csillagszerű tinta: legalább 16 px-es rövid söprés vagy két koppintás/kattintás/Enter. Első megnyomás halványít, második eltüntet. | Ugyanaz a foltszámképlet, maximum 3 tintafolt.                              |
-| `roulette` / Válaszrulett      | A válaszok 2000 ms alatt négyszer helyet cserélnek; a körforgás végén stabilak. Beküldés addig tiltott.                                  | 2+ támadásnál öt helycsere, nem hosszabb idő.                               |
+| Stabil ID / magyar név         | Mechanika                                                                                                                                                | Több azonos támadás                                                         |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `slime` / Takonybomba          | Organikus zöld foltok a kérdés/válaszok kis részein. Valódi ujj-/egérsöprés törli a vászonmaszkot; foltonként több söprés vagy négy akadálymentes lépés. | `min(3, 1 + ceil(támadásszám / 2))` folt; egy támadás 2 folt.               |
+| `freeze` / Fagyasztás          | Feltörhető jégbarrier: 1/2/3+ támadásra 3/4/5 elfogadott koppintás. Korai feloldás szerveren is.                                                         | 1/2/3/4+ támadás: 1200/1600/1800/2000 ms.                                   |
+| `shuffle` / Káosz              | Tényleges, célpontspecifikus helycsere a megjelent válaszokon 650 ms-nél; 200 ms rendeződési jelzés.                                                     | 2+ támadásnál még egy helycsere 1250 ms-nél. Zár feloldása 850/1450 ms-nél. |
+| `upside-down` / Feje tetejére! | Csak a válaszszöveg fordul 180°-kal; kérdés, gombhely, időmérő és navigáció nem. Automatikusan visszaáll.                                                | 3000 ms + 500 ms minden további támadásra, maximum 4000 ms.                 |
+| `ink` / Tintapaca              | Sötét csillagszerű tinta: legalább 16 px-es rövid söprés vagy két koppintás/kattintás/Enter. Első megnyomás halványít, második eltüntet.                 | Ugyanaz a foltszámképlet, maximum 3 tintafolt.                              |
+| `roulette` / Válaszrulett      | A válaszok 2000 ms alatt négyszer helyet cserélnek; a körforgás végén stabilak. Beküldés addig tiltott.                                                  | 2+ támadásnál öt helycsere, nem hosszabb idő.                               |
 
 A kérdés saját kezdeti válaszkeverése közös és külön történik. A szabotázs a kérdés megjelenése után módosítja a célpont sorrendjét. A szerver előre mentett, megoldókulcstól független, nem nulla eltolású válaszindex-permutációkat és abszolút időket küld. A React-gomb kulcsa és beküldött indexe végig ugyanaz a kanonikus identitás; a betűjel is ehhez kötődik. A helycserék alatt a kliens `aria-disabled` állapotot és megnyomáskor visszajelzést ad, a szerver pedig `ANSWERS_MOVING` hibával tiltja a túl korai választ. Nincs véletlenül másik válasszá változó beküldés. A feloldás pillanatára stabil az elrendezés.
 
@@ -77,10 +77,10 @@ A kérdés saját kezdeti válaszkeverése közös és külön történik. A sza
 
 Minden elfogadott támadás megőrzi a támadó ID-ját, képességét, célpontját és feloldási eredményét. A célpontonkénti összesítés nem dob el és nem irányít át támadást. Típusonként csökkenő hozadék és szigorú felső korlát érvényes; a fölös mechanikai erő helyett a valós szám és teljes támadáslista marad a társas visszajelzésben.
 
-1. Fagyasztás és mozgás párhuzamosan indul a kérdés kezdetén. A közös beküldési zár `max(fagyasztás, mozgás)`, **maximum 2000 ms**, nem ezek összege. Három Fagyasztás + két Rulett így 2 mp zár, nem 5,8 mp.
+1. Fagyasztás és mozgás párhuzamosan indul a kérdés kezdetén. Feltörés nélkül a közös beküldési zár `max(fagyasztás, mozgás)`, **maximum 2000 ms**, nem ezek összege. Három Fagyasztás + két Rulett így 2 mp zár, nem 5,8 mp.
 2. Káosz + Rulett együtt csak a Rulett legfeljebb öt helycseréjét futtatja; a Káosz egy további permutációval járul hozzá az utolsó, közös képkocka végső sorrendjéhez. Nem hosszabbítja a zárolást és nem indít külön mozgási sorozatot.
 3. A közös zár végétől fordul fejre az esetleges válaszszöveg, legfeljebb 4 mp-ig. Közben már lehet válaszolni.
-4. Ezután jelennek meg együtt a takony- és tintafoltok. Eltávolíthatók, és **4500 ms után automatikusan eltűnnek**. Közben is lehet válaszolni. A foltok legfeljebb 20% szélesek, takony 18%, tinta 16% magas; típusonként maximum három. Összes névleges befoglaló terület maximum 20,4%. A legalább 44 px-es érintési felület és legalább 280 px magas aréna a támogatott 320 px-es nézeten is a 25%-os kereten belül marad. Nem fedik le az összes választ vagy a teljes kérdést.
+4. Ezután jelennek meg együtt a takony- és tintafoltok. Eltávolíthatók, és **4500 ms után automatikusan eltűnnek**. Közben is lehet válaszolni. A foltok legfeljebb 20% szélesek, takony 18%, tinta 16% magas; típusonként maximum három. Összes névleges befoglaló terület maximum 20,4%. A legalább 44 px-es érintési felület és legalább 280 px magas választerület a támogatott 320 px-es nézeten is a 25%-os kereten belül marad. Nem fedik le az összes választ vagy a teljes kérdést.
 
 Legrosszabb vegyes ütemezésben az akadályok a normál 15 mp-ből legkésőbb 10,5 mp-nél elmúlnak; a beküldés legfeljebb az első 2 mp-ben tiltott. Hét támadás ugyanarra a játékosra mind megjelenik a nyilvántartásban. A határon túl érkező további támadás nem növeli a zárat, a foltszámot, a mozgásszámot vagy a fejre állítás idejét.
 
@@ -134,7 +134,7 @@ Kifejezett kilépő történeti pontjai/rangsora megmaradnak, visszalépési jog
 
 ## Cloudflare kompatibilitás és ismert korlátok
 
-Worker név/éles bindings/SQLite `v1` változatlan. A `room` rekord additív `schemaVersion: 3` bővítést kap. A 2-es séma előszobája és aktív kvíze, identitásai, beállításai, pontjai, kérdésfolyamata, válaszai, fázisazonosítója és határideje megmaradnak; hiányzó `sabotage` mező `null`. Futó régi kérdésre nem alkalmazunk utólag új hatást, a következő kérdés már szabotázzsal kezdődik. Régi előszoba megmarad, az első PR régi kérdés nélküli `session` egyszer visszatér előszobába magyar tájékoztatóval és törölt készenléttel; belépési titok hash, karakter és beállítás megmarad. Nincs destruktív adat- vagy infrastruktúra-migráció. Tartalomkiadáskor stabil ID-k megőrzése szükséges aktív partira hivatkozó tartalomhoz.
+Worker név/éles bindings/SQLite `v1` változatlan. A `room` rekord additív `schemaVersion: 4` bővítést kap. A PR #5 mezői és a már előkészített döntőkérdés átmeneti egyválaszos szabálya lent dokumentáltak; identitás/pont/határidő nem nullázódik. A 2-es séma előszobája és aktív kvíze, identitásai, beállításai, pontjai, kérdésfolyamata, válaszai, fázisazonosítója és határideje megmaradnak; hiányzó `sabotage` mező `null`. Futó régi kérdésre nem alkalmazunk utólag új hatást, a következő kérdés már szabotázzsal kezdődik. Régi előszoba megmarad, az első PR régi kérdés nélküli `session` egyszer visszatér előszobába magyar tájékoztatóval és törölt készenléttel; belépési titok hash, karakter és beállítás megmarad. Nincs destruktív adat- vagy infrastruktúra-migráció. Tartalomkiadáskor stabil ID-k megőrzése szükséges aktív partira hivatkozó tartalomhoz.
 
 A feature ág Workers Builds folyamata `wrangler preview` parancsot futtat. Ehhez a `previews.durable_objects.bindings` újra deklarálja az `env.ROOMS` bindingot helyi `Room` osztállyal, külső `script_name` nélkül: a Cloudflare automatikusan külön névteret és tárolást ad preview-nként. A `previews.ratelimits` ugyanazt a 60 kérés / 60 mp korlátot a külön `1002` névtérben használja, az éles `1001` változatlan. A preview-k rate-limit névtere közös, az éles forgalomtól elkülönített. Az assetek és a meglévő migráció öröklődnek a felső szintről. Ez az előnézeti build konfigurációja, nem éles telepítés. [Cloudflare izolációs szabályok](https://developers.cloudflare.com/workers/previews/resources/#durable-objects).
 
@@ -142,7 +142,7 @@ Ismert korlátok: részben forrásellenőrzött bank, előzetes nehézségcímk�
 
 ## Mobil, hozzáférhetőség és ellenőrzés
 
-320/375/390/430 px és asztali nézet; legalább 44 px érintési célok, safe-area margók, tördelődő becenevek. Kis helyen hosszú szöveg/célpontrács görgethető, nem levágott. Egyetlen meglévő játékóra rajzolja a visszaszámlálást és a határidős hatásokat; nincsenek hatásonként új intervallumok vagy nehéz canvas/animációs csomagok. CSS/SVG és natív gombok. Billentyűzetes törlés és két megnyomás a tinta söprésének alternatívája. `prefers-reduced-motion` kikapcsolja az erős animációt; azonos helycserék, időzárak, rövid fejre állítás és törlési feladat marad. Nincs villogás; szöveg/ikon jelzi az állapotot, nem csak szín.
+320/375/390/430 px és asztali nézet; legalább 44 px érintési célok, safe-area margók, tördelődő becenevek. Kis helyen hosszú szöveg/célpontrács görgethető, nem levágott. Egyetlen meglévő játékóra rajzolja a visszaszámlálást és a határidős hatásokat; nincsenek hatásonként új intervallumok vagy nehéz canvas/animációs csomagok. CSS/SVG, könnyű natív vászonmaszk és gombok. Billentyűzetes törlés és két megnyomás a tinta söprésének alternatívája. `prefers-reduced-motion` kikapcsolja az erős animációt; azonos helycserék, időzárak, rövid fejre állítás és törlési feladat marad. Nincs villogás; szöveg/ikon jelzi az állapotot, nem csak szín.
 
 PR #3: 85 sikeres Vitest szabály- és valódi Workers-teszt; az előző tesztek megmaradtak. Ajánlatok/privát projekció, atomikus validálás, kihagyás/időtúllépés, stale phase/session/round, 2/4/8 résztvevő, hét elfogadott támadás ugyanarra a játékosra, mind a hat mechanika, csökkenő hozadék és korlátok, helyes válaszindex, szerveroldali fagyasztás, disconnect/kilépés, tárolási upgrade, rekonstrukció, késői alarm, pontozás, döntő és új parti.
 
@@ -179,3 +179,47 @@ PR #4 futási eredmény: 96 sikeres szabály-/Workers-teszt, 5 sikeres Chromium-
 ## Következő ajánlott mérföldkő
 
 Független magyar tartalmi szerkesztés és tételes forrásellenőrzés, valódi iOS/Android és társas játékpróba, nehézségkalibráció. Ezután jóváhagyott saját karakter- és hangassetcsomag a meglévő cserefelületeken. Új kérdéstípusok, karakterek, bolt, pénznem, fiók és fizetős szolgáltatás nem készült ebben a mérföldkőben.
+
+## PR #5: interaktív hatások és döntő
+
+### Takonybomba – tényleges maszktörlés
+
+A két (maximum három) organikus, áttetsző zöld folt a választerület kis részeit érinti. Mindegyik natív Canvas 2D, `destination-out` vonaltörléssel: az ujj, egér vagy toll útján azonnal látszik a kitörölt nyom. Koppintás nem rajzol/töröl. Érdemi söprés minimum 0,28 normalizált út; befejezéshez legalább két ilyen söprés, összesen 1,25 út és legalább 45% ténylegesen letörölt maszk kell. A terület pixelmintavétele csak befejezett/cancel műveletnél történik, mozgáskor nincs React-állapotfrissítés. Négy billentyűzetes akadálymentes lépés foltonként biztosít alternatívát, Tab-fókuszra látható vezérlővel.
+
+Legfeljebb 12 nyomvonal × 64 normalizált pont/folt menthető; DPR maximum 2, vászonoldal maximum 512 pixel. ResizeObserver újrarajzolja a maszkot és a törlési nyomokat. Pointer capture, célzott `touch-action:none`, cancel/lost-capture mentés és kattintáselnyelés védi a dokumentumot és az alatta lévő válaszgombot. A megszakított söprés részleges nyoma marad, de nem számít befejezett söprésnek. A felület a gesztus végéig és a sikeres törlés után átlátszó vászonként megmarad; nincs felengedéskor előbukkanó válaszgomb-kattintás.
+
+A helyi tár játékos/fázis/folt szerint menti a korlátozott vizuális állapotot; más eszközre nem szinkronizált. Új fázis vagy eredeti lejárat törli a régi takonykulcsokat. Tártiltáskor az aktuális nézetben működik. Az eredeti 4500 ms automatikus eltűnés és foltszámkorlát változatlan. Takony/tinta befoglaló területe maximum 20,4%, a 44 px minimumokkal is 25% alatt a legalább 280 px magas választerületen.
+
+### Fagyasztás – hiteles jégtörés
+
+1/2/3+ támadás = 3/4/5 szükséges koppintás (`iceRequiredTaps`); az eredeti felolvadás 1200/1600/1800/2000 ms. Új protokoll: `ice-tap {requestId, sessionId, phaseId, round}`. A szerver a kapcsolati identitást használja, nem fogad el célpontot, darabszámot vagy feltört jelzőt a klienstől. Ellenőrzi a hitelesített, kapcsolódó résztvevőt, a kontextust, kérdésfázist, aktív és még feltöretlen Freeze-hatást, nem lezárt választ és eredeti időablakot. Koppintások fogadása között minimum 80 ms; gyorsabb sorozat `ICE_TOO_FAST`, lejárt/feltört jég `ICE_INACTIVE`.
+
+Az elfogadott koppintásszám, legutóbbi fogadási idő és feltörés szerverideje a kvízben mentett. Mentés megelőzi a broadcast/ACK-ot; a meglévő 32 sikeres kérés-ID-s deduplikáció ismételt kérésre nem növeli a számot. Egy kérdésben legfeljebb öt elfogadott koppintás lehetséges. A kliens 100 ms-onként küldhet, legfeljebb a szükséges ötig korlátozott függő halmazzal; nem vár minden új koppintás előtt hálózati körre. Optimista repedés mellett a felirat a megerősített haladást mutatja; elutasítás visszaállítja a függő repedést és magyar hibát ad. A válaszadás csak megerősített feltörésre nyílik. Enter/Space a natív gombon ugyanazt a hiteles műveletet küldi.
+
+`motionUnlockAt` a Fagyasztástól független abszolút mozgáskorlát. Tényleges zár: aktív, még nem feltört fagy VAGY le nem járt mozgás. Jégtörés nem oldja fel a Rulettet/Káoszt, nem tolja el a fejre állítást vagy a foltokat, és nem nyújtja meg a 15 mp kérdést. A legrosszabb időzár továbbra is 2 mp, automatikus felolvadás mindig működik.
+
+### Többtippes döntő
+
+Kizárólag az újonnan előkészített döntőkérdés `answeringMode: multi-guess`; normál kérdés `single`. Ugyanaz az atomikus `answer` művelet használatos. Játékosonként legfeljebb négy különböző kanonikus index menthető: index, szerver fogadási idő, helyesség és sorszám. Hibás index többé nem fogadható el (`OPTION_ELIMINATED`), a helyes tipp a meglévő `answers` mezőbe kerül, lezárja a játékost (`ANSWER_LOCKED`). Hibás tipp nem teljesítés és nem indít korai közös eredményt. Három hiba után is külön be kell küldeni az utolsó választ, a határidő előtt.
+
+Csak a saját elfogadott index/helyesség/hibaszám, elimináció és befejezés látható; a szerveres tippidők, más játékos tippje, megoldóindex és bank nem kerülnek kérdés alatti nyilvános projekcióba vagy DOM-ba. A gombok stabil kanonikus kulcs/index alapján működnek, helycserétől függetlenül. A kiesett opció letiltott, halványított, áthúzott helyőrző, a hozzáférhető névben „kiesett válasz” jelzéssel. Az eredeti szöveg mérete és a négy pozíció megmarad, hosszú opció sem húzza össze a rácsot. A helyes tipp rögzítésre kerül; valódi pont a közös eredménykor látható.
+
+Pont: `(100 − 30 × rossz_tippek + gyorsaság) × 2`, rossz tippek 0–3. A korábbi egész másodperces 0–50 bónusz az első helyes tipp szerverfogadási idejéből számolódik. Maxima 300/240/180/120; két hiba + elméleti 20 bónusz = 120 pont. A meglévő sávfüggvény például 8,4 mp-re 21-et ad: két hiba ekkor 122 pont. Helyes tipp nélkül 0 pont. A `basePoints` a valóban megmaradt alappont (100/70/40/10), nem mindig 100; a külön `mistakePenalty`, `wrongAttempts` és lezárt tippösszesítés megmagyarázza a pontot.
+
+Statisztika kérdésenként egyszer: megoldott döntő egy helyes és egy válaszolt kérdés, válaszidő az első helyes tipp. Sikertelen, de próbált döntő egy válaszolt kérdés, ideje az utolsó elfogadott hibás tipp. Tipp nélküli timeout nem válaszolt kérdés. Pontosság továbbra is helyes/összes kérdés, kihagyással együtt. Rang/tie politika változatlan. Korai lezárás csak minden jelenleg jogosult befejezésekor; egyébként a normál 15 mp határidő.
+
+### Tárolás, időzítés, kompatibilitás
+
+Additív `schemaVersion:4`: `answeringMode`, `finaleAttempts`, `iceProgress`; hatásban `motionUnlockAt`, `iceRequiredTaps`. A 2-es/3-as tárolás megőrzi a munkamenetet, fázist, kérdést, kanonikus sorrendet, korábbi válaszokat, pontokat, résztvevőket és eredeti határidőket. A hiányzó gyűjtemények üresek; régi mozgászár a tárolt képkockákból rekonstruálódik, teljes effektütemezés nem generálódik újra.
+
+Már előkészített régi kérdés (választás/bemutató/kérdés/eredmény alatt is) egyválaszos marad, akár döntő: nem írjuk át az addig elfogadott választ/pontszámot. A következő `beginSabotage` az aktuális kérdéshez rendeli az új szabályt. Aktív kategóriaszavazás vagy döntőbejelentés után előkészített kérdés már az új szabályt kapja. Új kör nullázza a tipp- és jéghaladást; rematch törli az egész kvízt és új sessiont indít. Régi művelet nem játszható vissza új kérdésre/partira.
+
+Fázishatáridők 8/10/1,5/15/4/4/2 mp változatlanok; nincs új várakozás, kliensléptetés, pontduplázás vagy böngészőfüggő alarm. Worker `eszveszto`, Room osztály, SQLite v1, bindings, assetek és feature-preview izoláció változatlan. A külön Playwright Worker csak teszt: fix elsőköri ajánlatot biztosít, nem módosít válaszokat, időt vagy pontot; az éles belépési pontból elérhetetlen.
+
+### Ellenőrzés és ismert korlátok
+
+A PR #5 tesztek a korábbi lefedettséget megtartják, az engedélyezett új döntő/takony viselkedéshez igazítva az elvárásokat. Új szabálytesztek: 3/4/5 koppintás, ütemkorlát, saját identitás, stale kontextus, korai jégtörés/felolvadás, külön mozgászár, minden szabotázs melletti többtippes döntő, 1–4 tipp, timeout, privát elimináció, statisztika, 6/12/18 kérdés, migráció és új parti. Valódi Workers-socket teszt ismételt request-ID-val, új ID-s duplikált tippel, rekonstrukcióval és korai helyes válasszal ellenőrzi a szerveres haladást/pontot.
+
+Chromium-tesztek valódi két-/nyolcklienses partit futtatnak; az első kétklienses körben determinisztikus ajánlat biztosítja a slime/Freeze interakciót. Canvas-pixelváltozás, egy koppintás hatástalansága, touch/mouse és billentyűzetes törlés, frissítés utáni részleges nyom, jégtörés, hibás- majd helyes döntőtipp, saját elimináció/reconnect, pontlevonás, végeredmény és rematch. 320/375/390/430 px és desktop, csökkentett mozgás, no-document-scroll és belső panel fallback. Fizikai iOS/Android teszt nem történt; késés mellett a rövid Freeze hamarabb felolvadhat, mint ahogy minden koppintás szerverhez ér. A vizuális tisztítás nem manipulálhatatlan, eszközök között nem szinkronizált; a szerveres zár/idő/tipp/pont szabályok hitelesek.
+
+Végső ellenőrzés: 127 sikeres szabály-/Workers-teszt, 6 sikeres Chromium-teszt, ESLint, TypeScript, éles build és Wrangler deploy dry run. A teljes böngészőfutás 3,5 perc alatt fejeződött be valódi termékidőkkel. Éles telepítés és fizikai telefonos teszt nem történt. Tényleges képek a [képdokumentációban](screenshots/README.md#pr-5--tényleges-maszktörlés). Következő PR: valódi mobil és társas teszt, hozzáférhetőségi játékpróba és balanszhangolás; a tartalmi audit külön mérföldkő marad.

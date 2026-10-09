@@ -1,5 +1,8 @@
-import { useState, type PointerEvent } from "react";
-import type { PublicQuestion } from "../shared/game";
+import { useEffect, useState, type PointerEvent } from "react";
+import type { PublicQuestion, PublicIce, PublicFinale } from "../shared/game";
+import { SlimePatch } from "./SlimePatch";
+import { IceBarrier } from "./IceBarrier";
+import { sound } from "./sound";
 import {
   presentationAt,
   SABOTAGE_BALANCE,
@@ -36,6 +39,10 @@ export function QuestionEffects({
   myAnswer,
   disabled,
   onAnswer,
+  ice,
+  finale,
+  online,
+  onIceTap,
 }: {
   question: PublicQuestion;
   effects: PlayerEffects | null;
@@ -45,6 +52,10 @@ export function QuestionEffects({
   myAnswer: number | null;
   disabled: boolean;
   onAnswer: (index: number) => void;
+  ice: PublicIce | null;
+  finale: PublicFinale | null;
+  online: boolean;
+  onIceTap: () => Promise<void>;
 }) {
   const key = `eszveszto:clearing:${playerId}`;
   const [clearing, setClearing] = useState(() => readClearing(key, phaseId));
@@ -55,7 +66,26 @@ export function QuestionEffects({
     y: number;
     pointerId: number;
   } | null>(null);
-  const view = presentationAt(effects, now, question.options.length);
+  const view = presentationAt(effects, now, question.options.length, ice);
+  const slimePrefix = `eszveszto:slime:${playerId}:`;
+  const slimePhaseKey = `${slimePrefix}${phaseId}:`;
+  const expired = !!effects && now >= effects.overlaysUntil;
+  useEffect(() => {
+    try {
+      for (const savedKey of Object.keys(localStorage))
+        if (
+          savedKey.startsWith(slimePrefix) &&
+          (expired || !savedKey.startsWith(slimePhaseKey))
+        )
+          localStorage.removeItem(savedKey);
+    } catch {
+      /* Optional browser progress. */
+    }
+  }, [slimePrefix, slimePhaseKey, expired]);
+  useEffect(() => {
+    if (view.overlays && effects?.slimePatches)
+      sound.play("slime-arrive", slimePhaseKey + "arrival", !document.hidden);
+  }, [view.overlays, effects?.slimePatches, slimePhaseKey]);
   const update = (next: Clearing) => {
     setClearing(next);
     try {
@@ -64,9 +94,6 @@ export function QuestionEffects({
       /* Effects still auto-expire. */
     }
   };
-  function clearSlime(id: number) {
-    update({ ...clearing, slime: [...clearing.slime, id] });
-  }
   function hitInk(id: number) {
     const hits = (clearing.inkHits[id] ?? 0) + 1;
     update({
@@ -98,7 +125,11 @@ export function QuestionEffects({
     setPointer(null);
   }
   const seconds = effects
-    ? Math.max(0, (effects.answerUnlockAt - now) / 1000)
+    ? Math.max(
+        0,
+        ((view.frozen ? effects.freezeUntil : effects.motionUnlockAt) - now) /
+          1000,
+      )
         .toFixed(1)
         .replace(".", ",")
     : "0";
@@ -116,15 +147,28 @@ export function QuestionEffects({
       >
         {view.locked
           ? view.frozen
-            ? `❄️ Fagyasztás! ${attempted ? "Még " : ""}${seconds} mp, és válaszolhatsz.`
+            ? `❄️ Fagyasztás! Törd össze a jeget! Legfeljebb ${seconds} mp.`
             : `${effects?.counts.roulette ? "🎰 Rulett" : "🔀 Helycsere"}! ${seconds} mp, és megállnak a válaszok.`
           : view.upsideDown
             ? "🙃 Feje tetejére! Mindjárt helyreállnak a szövegek."
             : hasOverlay
-              ? "🟢 Takony: egy koppintás · 🖋️ Tinta: söprés vagy két koppintás"
+              ? [
+                  effects && effects.slimePatches > clearing.slime.length
+                    ? "🟢 Töröld több söpréssel! (Tab + 4×Enter)"
+                    : "",
+                  effects && effects.inkPatches > clearing.ink.length
+                    ? "🖋️ Söprés vagy két koppintás"
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
               : effects?.frames.length
                 ? "✓ A válaszok megálltak. Válaszolhatsz!"
-                : "Egy válasz, egy esély."}
+                : finale
+                  ? "Döntő: több esély · hibánként −30 alappont"
+                  : attempted
+                    ? "Most már válaszolhatsz."
+                    : "Egy válasz, egy esély."}
       </div>
       <div className={`effect-arena ${view.frozen ? "is-frozen" : ""}`}>
         <h1 className="question-prompt">{question.prompt}</h1>
@@ -135,94 +179,115 @@ export function QuestionEffects({
             alt={question.image.alt}
           />
         )}
-        <div
-          className={`answer-options ${view.upsideDown ? "is-upside-down" : ""} ${view.locked && effects?.frames.length ? `is-rearranging motion-${view.frameIndex % 2}` : ""}`}
-          onPointerDownCapture={() => {
-            if (view.locked) setAttempted(true);
-          }}
-        >
-          {view.order.map((index) => (
-            <button
-              key={index}
-              data-ui-sound
-              className={`answer-card ${myAnswer === index ? "selected" : ""}`}
-              disabled={disabled || myAnswer !== null}
-              aria-disabled={view.locked || disabled || myAnswer !== null}
-              aria-pressed={myAnswer === index}
-              onClick={() => {
-                if (view.locked) {
-                  setAttempted(true);
-                  return;
+        <div className="answer-area">
+          <div
+            className={`answer-options ${view.upsideDown ? "is-upside-down" : ""} ${view.locked && effects?.frames.length ? `is-rearranging motion-${view.frameIndex % 2}` : ""}`}
+            onPointerDownCapture={() => {
+              if (view.locked) setAttempted(true);
+            }}
+          >
+            {view.order.map((index) => (
+              <button
+                key={index}
+                data-ui-sound
+                className={`answer-card ${myAnswer === index ? "selected" : ""} ${finale?.eliminatedOptions.includes(index) ? "eliminated" : ""}`}
+                disabled={
+                  disabled ||
+                  myAnswer !== null ||
+                  finale?.eliminatedOptions.includes(index)
                 }
-                onAnswer(index);
-              }}
-            >
-              <span className="answer-letter">
-                {String.fromCharCode(65 + index)}
-              </span>
-              <strong className="answer-text">{question.options[index]}</strong>
-              {myAnswer === index && <span aria-hidden="true">✓</span>}
-            </button>
-          ))}
-        </div>
-        {view.overlays && effects && (
-          <div className="patch-layer">
-            {Array.from(
-              { length: effects.slimePatches },
-              (_, id) =>
-                !clearing.slime.includes(id) && (
-                  <button
-                    key={`slime-${id}`}
-                    className="slime-patch"
-                    aria-label={`Takonyfolt ${id + 1} letörlése`}
-                    style={{
-                      left: `${5 + id * 35}%`,
-                      top: `${18 + (id % 2) * 42}%`,
-                      width: `${b.patchWidthPercent}%`,
-                      height: `${b.slimeHeightPercent}%`,
-                    }}
-                    onClick={() => clearSlime(id)}
-                  >
-                    <span aria-hidden="true">×</span>
-                  </button>
-                ),
-            )}
-            {Array.from(
-              { length: effects.inkPatches },
-              (_, id) =>
-                !clearing.ink.includes(id) && (
-                  <button
-                    key={`ink-${id}`}
-                    className={`ink-patch ${(clearing.inkHits[id] ?? 0) > 0 ? "dispersing" : ""}`}
-                    aria-label={`Tintafolt ${id + 1}: söprés vagy két megnyomás (${clearing.inkHits[id] ?? 0}/2)`}
-                    style={{
-                      left: `${5 + id * 35}%`,
-                      top: `${40 + (id % 2) * 42}%`,
-                      width: `${b.patchWidthPercent}%`,
-                      height: `${b.inkHeightPercent}%`,
-                    }}
-                    onPointerDown={(e) => inkDown(e, id)}
-                    onPointerUp={(e) => inkUp(e, id)}
-                    onPointerCancel={() => setPointer(null)}
-                    onClick={() => {
-                      if (!clearing.ink.includes(id)) hitInk(id);
-                    }}
-                  >
-                    <svg
-                      viewBox="0 0 80 80"
-                      preserveAspectRatio="none"
-                      aria-hidden="true"
-                    >
-                      <path d="M40 9 48 19 68 9 61 30 79 38 62 48 70 69 48 62 39 79 28 62 9 69 18 48 1 38 20 29 11 9 31 19Z" />
-                    </svg>
-                    <span aria-hidden="true">
-                      {clearing.inkHits[id] ? "1/2" : "↔"}
-                    </span>
-                  </button>
-                ),
-            )}
+                aria-disabled={
+                  view.locked ||
+                  disabled ||
+                  myAnswer !== null ||
+                  finale?.eliminatedOptions.includes(index)
+                }
+                aria-pressed={myAnswer === index}
+                aria-label={
+                  finale?.eliminatedOptions.includes(index)
+                    ? `${question.options[index]} – kiesett válasz`
+                    : undefined
+                }
+                onClick={() => {
+                  if (view.locked) {
+                    setAttempted(true);
+                    return;
+                  }
+                  onAnswer(index);
+                }}
+              >
+                <span className="answer-letter">
+                  {String.fromCharCode(65 + index)}
+                </span>
+                <strong className="answer-text">
+                  {question.options[index]}
+                </strong>
+                {finale?.eliminatedOptions.includes(index) && (
+                  <span aria-hidden="true">✕</span>
+                )}
+                {myAnswer === index && <span aria-hidden="true">✓</span>}
+              </button>
+            ))}
           </div>
-        )}
+          {ice && (
+            <IceBarrier
+              ice={ice}
+              active={view.frozen}
+              online={online}
+              onTap={onIceTap}
+            />
+          )}
+          {view.overlays && effects && (
+            <div className="patch-layer">
+              {Array.from({ length: effects.slimePatches }, (_, id) => (
+                <SlimePatch
+                  key={`slime-${id}`}
+                  id={id}
+                  cleared={clearing.slime.includes(id)}
+                  storageKey={`${slimePhaseKey}${id}`}
+                  onComplete={() => {
+                    if (!clearing.slime.includes(id))
+                      update({ ...clearing, slime: [...clearing.slime, id] });
+                  }}
+                />
+              ))}
+              {Array.from(
+                { length: effects.inkPatches },
+                (_, id) =>
+                  !clearing.ink.includes(id) && (
+                    <button
+                      key={`ink-${id}`}
+                      className={`ink-patch ${(clearing.inkHits[id] ?? 0) > 0 ? "dispersing" : ""}`}
+                      aria-label={`Tintafolt ${id + 1}: söprés vagy két megnyomás (${clearing.inkHits[id] ?? 0}/2)`}
+                      style={{
+                        left: `${5 + id * 35}%`,
+                        top: `${40 + (id % 2) * 42}%`,
+                        width: `${b.patchWidthPercent}%`,
+                        height: `${b.inkHeightPercent}%`,
+                      }}
+                      onPointerDown={(e) => inkDown(e, id)}
+                      onPointerUp={(e) => inkUp(e, id)}
+                      onPointerCancel={() => setPointer(null)}
+                      onClick={() => {
+                        if (!clearing.ink.includes(id)) hitInk(id);
+                      }}
+                    >
+                      <svg
+                        viewBox="0 0 80 80"
+                        preserveAspectRatio="none"
+                        aria-hidden="true"
+                      >
+                        <path d="M40 9 48 19 68 9 61 30 79 38 62 48 70 69 48 62 39 79 28 62 9 69 18 48 1 38 20 29 11 9 31 19Z" />
+                      </svg>
+                      <span aria-hidden="true">
+                        {clearing.inkHits[id] ? "1/2" : "↔"}
+                      </span>
+                    </button>
+                  ),
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

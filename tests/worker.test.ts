@@ -10,6 +10,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/server/index";
 import type { StoredRoom } from "../src/server/model";
 import type { ServerMessage } from "../src/shared/game";
+import { advanceQuiz, scoreAnswer } from "../src/server/quiz";
+import { combineEffects } from "../src/server/sabotage";
 const bindings = env as unknown as Env;
 const origin = "https://example.com";
 const sockets: WebSocket[] = [];
@@ -528,7 +530,7 @@ describe("real Worker and Durable Object transport", () => {
     const stored = (await runInDurableObject(stub, async (_instance, ctx) =>
       ctx.storage.get<StoredRoom>("room"),
     ))!;
-    expect(stored.schemaVersion).toBe(3);
+    expect(stored.schemaVersion).toBe(4);
     expect(stored.quiz).toBeNull();
   });
   it("accounts for seven mixed attacks, deduplicates requests, restores offers and effects, and enforces Freeze in the real Worker", async () => {
@@ -723,5 +725,221 @@ describe("real Worker and Durable Object transport", () => {
       (m) => m.type === "error" && m.code === "RATE_LIMIT",
     );
     expect(error.type).toBe("error");
+  });
+  it("persists real ice taps and private finale guesses, deduplicates retries and scores once across reconstruction", async () => {
+    const created = await create(),
+      guestToken = credential();
+    const response = await post(`/api/rooms/${created.code}/join`, {
+      nickname: "Vendég",
+      character: "zum",
+      credential: guestToken,
+    });
+    const guestId = ((await response.json()) as { playerId: string }).playerId;
+    let host = await connect(created.code, created.token),
+      guest = await connect(created.code, guestToken);
+    await host.next(state);
+    await guest.next(state);
+    await host.action({
+      type: "settings",
+      value: { questionCount: 6, difficulty: "normal" },
+    });
+    await host.action({ type: "ready", value: true });
+    await guest.action({ type: "ready", value: true });
+    await host.action({ type: "start" });
+    const stub = bindings.ROOMS.get(bindings.ROOMS.idFromName(created.code));
+    // Only the test owns this deterministic phase/effect fixture. Actual socket
+    // actions, storage, ACKs, enforcement, transitions and scores are production.
+    await runInDurableObject(stub, async (_instance, ctx) => {
+      const room = (await ctx.storage.get<StoredRoom>("room"))!;
+      while (room.phase !== "question" || room.quiz!.round !== 5)
+        advanceQuiz(room, room.quiz!.deadline!);
+      const q = room.quiz!,
+        at = Date.now();
+      q.phaseStartedAt = at;
+      q.deadline = at + 15000;
+      q.sabotage!.effects[created.playerId] = combineEffects(
+        [
+          {
+            attackerId: guestId,
+            targetId: created.playerId,
+            abilityId: "freeze",
+            outcome: "applied",
+          },
+        ],
+        at,
+        4,
+      );
+      q.sabotage!.effects[guestId] = combineEffects([], at, 4);
+      await ctx.storage.put("room", room);
+    });
+    await evictDurableObject(stub);
+    host = await connect(created.code, created.token);
+    guest = await connect(created.code, guestToken);
+    const initial = await host.next(
+      (m) => m.type === "state" && m.room.phase === "question",
+    );
+    await guest.next((m) => m.type === "state" && m.room.phase === "question");
+    if (initial.type !== "state") throw new Error("No question");
+    const g = initial.room.game!,
+      c = { sessionId: g.sessionId, phaseId: g.phaseId, round: g.round };
+    let stored = (await runInDurableObject(stub, async (_instance, ctx) =>
+      ctx.storage.get<StoredRoom>("room"),
+    ))!;
+    const correct = stored.quiz!.correctIndex,
+      wrong = (correct + 1) % 4;
+    expect(
+      await host.action({ type: "answer", optionIndex: wrong, ...c }),
+    ).toMatchObject({ type: "error", code: "FROZEN" });
+    expect(await guest.action({ type: "ice-tap", ...c })).toMatchObject({
+      type: "error",
+      code: "ICE_INACTIVE",
+    });
+    const iceRequest = crypto.randomUUID(),
+      tap = {
+        type: "ice-tap",
+        ...c,
+        requestId: iceRequest,
+        playerId: guestId,
+        acceptedTaps: 99,
+        broken: true,
+      };
+    host.send(tap);
+    await host.next((m) => m.type === "ack" && m.requestId === iceRequest);
+    host.send(tap);
+    await host.next((m) => m.type === "ack" && m.requestId === iceRequest);
+    await evictDurableObject(stub);
+    host = await connect(created.code, created.token);
+    const restored = await host.next(
+      (m) => m.type === "state" && m.room.phase === "question",
+    );
+    expect(
+      restored.type === "state" && restored.room.game!.myIce,
+    ).toMatchObject({ acceptedTaps: 1, broken: false });
+    for (let n = 0; n < 2; n++) {
+      await new Promise((resolve) => setTimeout(resolve, 90));
+      expect(await host.action({ type: "ice-tap", ...c })).toMatchObject({
+        type: "ack",
+      });
+    }
+    const broken = await host.next(
+      (m) => m.type === "state" && m.room.game?.myIce?.broken === true,
+    );
+    expect(
+      broken.type === "state" && broken.room.game!.myIce!.acceptedTaps,
+    ).toBe(3);
+    const guessRequest = crypto.randomUUID(),
+      guess = {
+        type: "answer",
+        optionIndex: wrong,
+        ...c,
+        requestId: guessRequest,
+      };
+    host.send(guess);
+    await host.next((m) => m.type === "ack" && m.requestId === guessRequest);
+    host.send(guess);
+    await host.next((m) => m.type === "ack" && m.requestId === guessRequest);
+    expect(
+      await host.action({ type: "answer", optionIndex: wrong, ...c }),
+    ).toMatchObject({ type: "error", code: "OPTION_ELIMINATED" });
+    const other = await guest.next(
+      (m) =>
+        m.type === "state" &&
+        m.room.game?.myIce === null &&
+        m.room.phase === "question",
+    );
+    expect(
+      other.type === "state" && other.room.game!.myFinale!.attempts,
+    ).toEqual([]);
+    await evictDurableObject(stub);
+    host = await connect(created.code, created.token);
+    const rejoined = await host.next(
+      (m) => m.type === "state" && m.room.phase === "question",
+    );
+    expect(
+      rejoined.type === "state" && rejoined.room.game!.myFinale,
+    ).toMatchObject({
+      wrongAttempts: 1,
+      eliminatedOptions: [wrong],
+      finished: false,
+    });
+    expect(
+      rejoined.type === "state" && JSON.stringify(rejoined.room.game),
+    ).not.toMatch(/correctIndex|receivedAt|lastTapAt/);
+    const acceptedCorrectId = crypto.randomUUID();
+    const acceptedCorrect = {
+      type: "answer",
+      optionIndex: correct,
+      ...c,
+      requestId: acceptedCorrectId,
+    };
+    host.send(acceptedCorrect);
+    await host.next(
+      (m) => m.type === "ack" && m.requestId === acceptedCorrectId,
+    );
+    stored = (await runInDurableObject(stub, async (_instance, ctx) =>
+      ctx.storage.get<StoredRoom>("room"),
+    ))!;
+    expect(stored.quiz!.answers[created.playerId].receivedAt).toBeLessThan(
+      stored.quiz!.sabotage!.effects[created.playerId].freezeUntil,
+    );
+    const correctRequest = crypto.randomUUID();
+    host.send({
+      type: "answer",
+      optionIndex: correct,
+      ...c,
+      requestId: correctRequest,
+    });
+    expect(
+      await host.next(
+        (m) => m.type === "error" && m.requestId === correctRequest,
+      ),
+    ).toMatchObject({ code: "ANSWER_LOCKED" });
+    expect(
+      await guest.action({ type: "answer", optionIndex: wrong, ...c }),
+    ).toMatchObject({ type: "ack" });
+    expect(
+      await guest.action({ type: "answer", optionIndex: correct, ...c }),
+    ).toMatchObject({ type: "ack" });
+    const results = await host.next(
+      (m) => m.type === "state" && m.room.phase === "results",
+    );
+    if (results.type !== "state") throw new Error("No results");
+    host.send(acceptedCorrect);
+    await host.next(
+      (m) => m.type === "ack" && m.requestId === acceptedCorrectId,
+    );
+    const myResult = results.room.game!.result!.players.find(
+      (p) => p.playerId === created.playerId,
+    )!;
+    expect(myResult.total).toBe(
+      scoreAnswer(
+        true,
+        g.startedAt,
+        g.deadline!,
+        stored.quiz!.answers[created.playerId].receivedAt,
+        true,
+        1,
+      ).total,
+    );
+    expect(myResult).toMatchObject({
+      wrongAttempts: 1,
+      basePoints: 70,
+      correct: true,
+    });
+    expect(
+      results.room.game!.ranking.every(
+        (p) => p.correctAnswers === 1 && p.answeredQuestions === 1,
+      ),
+    ).toBe(true);
+    const before = results.room.game!.ranking.map((p) => p.score);
+    await evictDurableObject(stub);
+    await runDurableObjectAlarm(stub);
+    const final = (await runInDurableObject(stub, async (_instance, ctx) =>
+      ctx.storage.get<StoredRoom>("room"),
+    ))!;
+    expect(final.quiz!.participants.map((p) => p.score).sort()).toEqual(
+      before.sort(),
+    );
+    expect(final.quiz!.finaleAttempts[created.playerId]).toHaveLength(2);
   });
 });

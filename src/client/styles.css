@@ -2069,6 +2069,87 @@ footer span {
 .effect-arena .question-prompt {
   margin-top: 10px;
 }
+.answer-area {
+  position: relative;
+  isolation: isolate;
+  min-height: 280px;
+}
+.answer-area .answer-options {
+  min-height: 280px;
+}
+.answer-card.eliminated {
+  opacity: 0.5;
+  border-style: dashed;
+}
+.answer-card.eliminated .answer-text {
+  text-decoration: line-through;
+}
+.finale-breakdown {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ice-barrier {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid #70bbd6;
+  border-radius: 16px;
+  color: #124a62;
+  background: linear-gradient(125deg, #d9f7ffe8, #a5dcebed, #e4faffdf);
+  touch-action: manipulation;
+  padding: 12px;
+  overflow: hidden;
+}
+.ice-barrier span,
+.ice-barrier small {
+  position: relative;
+  background: #effaffeb;
+  border-radius: 8px;
+  padding: 5px;
+}
+.ice-barrier svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.ice-crack {
+  fill: none;
+  stroke: #438ba5;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.ice-barrier.ice-shattered,
+.ice-barrier.ice-melted {
+  pointer-events: none;
+  opacity: 0;
+}
+.ice-shattered {
+  animation: ice-break 0.25s ease-out;
+}
+.ice-error {
+  position: relative;
+  display: block;
+  color: #853927;
+  font-size: 12px;
+}
+@keyframes ice-break {
+  from {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.025);
+  }
+}
 .is-frozen {
   outline: 3px solid #81cbe3;
   outline-offset: 5px;
@@ -2124,6 +2205,60 @@ footer span {
 .slime-patch span {
   font-size: 28px;
   font-weight: 900;
+}
+.slime-patch.wipe-patch {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+  animation: wipe-arrive 0.2s ease-out;
+}
+@keyframes wipe-arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.wipe-patch canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  pointer-events: auto;
+}
+.wipe-patch.is-clean canvas {
+  pointer-events: none;
+}
+.wipe-alternative {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+.wipe-alternative:focus-visible {
+  clip-path: none;
+  width: auto;
+  min-width: 44px;
+  height: 44px;
+  overflow: visible;
+  z-index: 4;
+  pointer-events: auto;
+  background: #eff9d7;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ice-shattered {
+    animation: none;
+  }
 }
 .ink-patch {
   background: transparent;
