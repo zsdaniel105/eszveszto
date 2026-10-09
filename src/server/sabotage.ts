@@ -104,6 +104,8 @@ export function combineEffects(
     counts,
     freezeUntil: startsAt + freezeMs,
     answerUnlockAt,
+    motionUnlockAt: startsAt + motionMs,
+    iceRequiredTaps: counts.freeze ? Math.min(5, 2 + counts.freeze) : 0,
     frames,
     upsideFrom,
     upsideUntil,

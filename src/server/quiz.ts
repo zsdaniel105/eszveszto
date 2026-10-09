@@ -26,6 +26,15 @@ interface SubmittedAnswer {
   optionIndex: number;
   receivedAt: number;
 }
+export interface FinaleAttempt extends SubmittedAnswer {
+  correct: boolean;
+  order: number;
+}
+export interface IceProgress {
+  acceptedTaps: number;
+  lastTapAt: number;
+  brokenAt: number | null;
+}
 export interface StoredQuiz {
   sessionId: string;
   phaseId: string;
@@ -44,6 +53,9 @@ export interface StoredQuiz {
   options: string[];
   correctIndex: number;
   answers: Record<string, SubmittedAnswer>;
+  answeringMode: "single" | "multi-guess";
+  finaleAttempts: Record<string, FinaleAttempt[]>;
+  iceProgress: Record<string, IceProgress>;
   eligiblePlayerIds: string[];
   participants: MatchPlayer[];
   result: RoundResult | null;
@@ -228,6 +240,9 @@ export function initializeQuiz(room: StoredRoom, now: number) {
     options: [],
     correctIndex: 0,
     answers: {},
+    answeringMode: "single",
+    finaleAttempts: {},
+    iceProgress: {},
     eligiblePlayerIds: [],
     participants: room.players.map((p) => ({
       id: p.id,
@@ -274,6 +289,9 @@ function beginSabotage(room: StoredRoom, now: number) {
   q.correctIndex = order.indexOf(answer);
   q.currentQuestionId = item.id;
   q.answers = {};
+  q.answeringMode = isFinale(room) ? "multi-guess" : "single";
+  q.finaleAttempts = {};
+  q.iceProgress = {};
   q.result = null;
   q.eligiblePlayerIds = room.players
     .filter(
@@ -304,6 +322,7 @@ export function scoreAnswer(
   deadline: number,
   receivedAt: number | null,
   finale: boolean,
+  wrongAttempts = 0,
 ) {
   const multiplier: 1 | 2 = finale ? 2 : 1;
   if (
@@ -320,11 +339,13 @@ export function scoreAnswer(
   const speedBonus = Math.floor(
     (50 * Math.max(0, lastBucket - elapsedSeconds)) / lastBucket,
   );
+  const basePoints =
+    100 - (finale ? Math.min(3, Math.max(0, wrongAttempts)) * 30 : 0);
   return {
-    basePoints: 100,
+    basePoints,
     speedBonus,
     multiplier,
-    total: (100 + speedBonus) * multiplier,
+    total: (basePoints + speedBonus) * multiplier,
   };
 }
 export function ranking(room: StoredRoom): Ranking[] {
@@ -352,7 +373,11 @@ function resolveQuestion(room: StoredRoom, now: number) {
     ranking(room).map((p) => [p.id, p.rank]),
   );
   const players: AnswerResult[] = q.participants.map((p) => {
-    const a = q.answers[p.id];
+    const attempts = q.finaleAttempts[p.id] ?? [];
+    // An unsolved finale with attempts counts as one answered question; its
+    // response time is the last accepted wrong attempt, never all guesses.
+    const a = q.answers[p.id] ?? attempts.at(-1);
+    const wrongAttempts = attempts.filter((attempt) => !attempt.correct).length;
     const correct = !!a && a.optionIndex === q.correctIndex;
     const points = scoreAnswer(
       correct,
@@ -360,6 +385,7 @@ function resolveQuestion(room: StoredRoom, now: number) {
       deadline,
       a?.receivedAt ?? null,
       isFinale(room),
+      wrongAttempts,
     );
     if (a) {
       p.answeredQuestions++;
@@ -373,6 +399,16 @@ function resolveQuestion(room: StoredRoom, now: number) {
       correct,
       ...points,
       responseTimeMs: a ? a.receivedAt - q.phaseStartedAt : null,
+      ...(q.answeringMode === "multi-guess"
+        ? {
+            wrongAttempts,
+            mistakePenalty: wrongAttempts * 30,
+            attempts: attempts.map(({ optionIndex, correct }) => ({
+              optionIndex,
+              correct,
+            })),
+          }
+        : {}),
     };
   });
   q.result = {
@@ -444,7 +480,15 @@ export function quizAction(
   playerId: string,
   action: Extract<
     Action,
-    { type: "vote" | "answer" | "rematch" | "attack" | "skip-attack" }
+    {
+      type:
+        | "vote"
+        | "answer"
+        | "rematch"
+        | "attack"
+        | "skip-attack"
+        | "ice-tap";
+    }
   >,
   now: number,
 ) {
@@ -525,9 +569,41 @@ export function quizAction(
           400,
         );
       q.votes[playerId] = action.categoryId; // one changeable vote per player, never client counts
+    } else if (action.type === "ice-tap") {
+      const effects = q.sabotage?.effects[playerId];
+      const progress = q.iceProgress[playerId];
+      if (
+        room.phase !== "question" ||
+        !effects?.iceRequiredTaps ||
+        now < q.phaseStartedAt ||
+        now >= effects.freezeUntil ||
+        progress?.brokenAt != null ||
+        q.answers[playerId]
+      )
+        throw new RoomError(
+          "ICE_INACTIVE",
+          "A jégzár már nincs aktív. Válaszolj, amint megállnak a gombok!",
+          409,
+        );
+      if (
+        progress &&
+        now - progress.lastTapAt < SABOTAGE_BALANCE.iceTapSpacingMs
+      )
+        throw new RoomError(
+          "ICE_TOO_FAST",
+          "Egy kicsit lassabban törd a jeget!",
+          429,
+        );
+      const acceptedTaps = (progress?.acceptedTaps ?? 0) + 1;
+      q.iceProgress[playerId] = {
+        acceptedTaps,
+        lastTapAt: now,
+        brokenAt: acceptedTaps >= effects.iceRequiredTaps ? now : null,
+      };
     } else {
       if (
         room.phase !== "question" ||
+        now < q.phaseStartedAt ||
         !Number.isInteger(action.optionIndex) ||
         action.optionIndex < 0 ||
         action.optionIndex >= q.options.length
@@ -544,18 +620,49 @@ export function quizAction(
           409,
         );
       const effects = q.sabotage?.effects[playerId];
-      if (effects && now < effects.answerUnlockAt)
+      const frozen =
+        !!effects &&
+        now < effects.freezeUntil &&
+        q.iceProgress[playerId]?.brokenAt == null;
+      if (effects && (frozen || now < effects.motionUnlockAt))
         throw new RoomError(
-          now < effects.freezeUntil ? "FROZEN" : "ANSWERS_MOVING",
-          now < effects.freezeUntil
-            ? "Még tart a fagyasztás! Amint felolvad, válaszolhatsz."
+          frozen ? "FROZEN" : "ANSWERS_MOVING",
+          frozen
+            ? "Még tart a fagyasztás! Törd össze a jeget, vagy várd meg, amíg felolvad."
             : "Még rendeződnek a válaszok. Egy pillanat, és válaszolhatsz!",
           409,
         );
-      q.answers[playerId] = {
-        optionIndex: action.optionIndex,
-        receivedAt: now,
-      };
+      if (q.answeringMode === "multi-guess") {
+        const attempts = q.finaleAttempts[playerId] ?? [];
+        if (
+          attempts.some((attempt) => attempt.optionIndex === action.optionIndex)
+        )
+          throw new RoomError(
+            "OPTION_ELIMINATED",
+            "Ezt a választ már kipróbáltad. Válassz másikat!",
+            409,
+          );
+        if (attempts.length >= q.options.length)
+          throw new RoomError(
+            "ANSWER_LOCKED",
+            "Ebben a körben már minden választ kipróbáltál.",
+            409,
+          );
+        q.finaleAttempts[playerId] = [
+          ...attempts,
+          {
+            optionIndex: action.optionIndex,
+            receivedAt: now,
+            correct: action.optionIndex === q.correctIndex,
+            order: attempts.length + 1,
+          },
+        ];
+      }
+      if (q.answeringMode === "single" || action.optionIndex === q.correctIndex)
+        q.answers[playerId] = {
+          optionIndex: action.optionIndex,
+          receivedAt: now,
+        };
       if (!q.eligiblePlayerIds.includes(playerId))
         q.eligiblePlayerIds.push(playerId);
       const required = q.eligiblePlayerIds.filter((id) =>
@@ -603,6 +710,29 @@ export function publicQuiz(
     myVote: viewerId ? (q.votes[viewerId] ?? null) : null,
     question,
     myAnswer: viewerId ? (q.answers[viewerId]?.optionIndex ?? null) : null,
+    myIce:
+      viewerId && q.sabotage?.effects[viewerId]?.iceRequiredTaps
+        ? {
+            requiredTaps: q.sabotage.effects[viewerId].iceRequiredTaps,
+            acceptedTaps: q.iceProgress[viewerId]?.acceptedTaps ?? 0,
+            broken: q.iceProgress[viewerId]?.brokenAt != null,
+          }
+        : null,
+    myFinale:
+      viewerId && q.answeringMode === "multi-guess"
+        ? {
+            attempts: (q.finaleAttempts[viewerId] ?? []).map(
+              ({ optionIndex, correct }) => ({ optionIndex, correct }),
+            ),
+            eliminatedOptions: (q.finaleAttempts[viewerId] ?? [])
+              .filter((a) => !a.correct)
+              .map((a) => a.optionIndex),
+            wrongAttempts: (q.finaleAttempts[viewerId] ?? []).filter(
+              (a) => !a.correct,
+            ).length,
+            finished: !!q.answers[viewerId],
+          }
+        : null,
     answeredPlayerIds: Object.keys(q.answers),
     result: reveal ? q.result : null,
     ranking: ranking(room),

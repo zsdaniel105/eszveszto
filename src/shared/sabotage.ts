@@ -5,14 +5,14 @@ export const ABILITIES = [
     name: "Takonybomba",
     icon: "🟢",
     color: "#d2eac5",
-    description: "Zöld pacák az ellenfélnél. Koppintással letakaríthatók.",
+    description: "Ragadós takony! Több söpréssel törölhető le.",
   },
   {
     id: "freeze",
     name: "Fagyasztás",
     icon: "❄️",
     color: "#c6e8f3",
-    description: "Rövid jégzár: az ellenfél eleinte nem válaszolhat.",
+    description: "Rövid jégzár: több koppintással hamarabb feltörhető.",
   },
   {
     id: "shuffle",
@@ -52,6 +52,7 @@ export const SABOTAGE_BALANCE = {
   selectionMs: 10_000,
   revealMs: 1500,
   maxLockMs: 2000,
+  iceTapSpacingMs: 80,
   freezeMs: [1200, 1600, 1800, 2000],
   shuffleAtMs: [650, 1250],
   shuffleSettleMs: 200,
@@ -83,6 +84,8 @@ export interface PlayerEffects {
   counts: Record<AbilityId, number>;
   freezeUntil: number;
   answerUnlockAt: number;
+  motionUnlockAt: number;
+  iceRequiredTaps: number;
   frames: PresentationFrame[];
   upsideFrom: number;
   upsideUntil: number;
@@ -111,6 +114,7 @@ export function presentationAt(
   effects: PlayerEffects | null,
   now: number,
   optionCount: number,
+  ice?: import("./game").PublicIce | null,
 ) {
   let order = Array.from({ length: optionCount }, (_, i) => i);
   let frameIndex = 0;
@@ -123,8 +127,11 @@ export function presentationAt(
   return {
     order,
     frameIndex,
-    locked: !!effects && now < effects.answerUnlockAt,
-    frozen: !!effects && now < effects.freezeUntil,
+    locked:
+      !!effects &&
+      ((now < effects.freezeUntil && !ice?.broken) ||
+        now < effects.motionUnlockAt),
+    frozen: !!effects && now < effects.freezeUntil && !ice?.broken,
     upsideDown:
       !!effects && now >= effects.upsideFrom && now < effects.upsideUntil,
     overlays:

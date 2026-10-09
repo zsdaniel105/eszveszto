@@ -45,7 +45,9 @@ export function roomSoundEvents(
           (p) => p.playerId === playerId,
         );
         cue = result?.correct
-          ? "correct"
+          ? game.myFinale
+            ? "finale-points"
+            : "correct"
           : result?.optionIndex != null
             ? "wrong"
             : null;
@@ -68,6 +70,23 @@ export function roomSoundEvents(
     }
     return cue ? [{ cue, id }] : [];
   }
+  if ((game.myIce?.acceptedTaps ?? 0) > (before.myIce?.acceptedTaps ?? 0))
+    return [
+      {
+        cue: game.myIce?.broken ? "ice-shatter" : "ice-crack",
+        id: `${id}:ice:${game.myIce!.acceptedTaps}`,
+      },
+    ];
+  if (
+    (game.myFinale?.attempts.length ?? 0) >
+    (before.myFinale?.attempts.length ?? 0)
+  )
+    return [
+      {
+        cue: game.myFinale?.finished ? "correct" : "wrong",
+        id: `${id}:guess:${game.myFinale!.attempts.length}`,
+      },
+    ];
   return game.myVote && game.myVote !== before.myVote
     ? [{ cue: "vote", id: `${id}:vote:${game.myVote}:${room.revision}` }]
     : [];

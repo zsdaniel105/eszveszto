@@ -13,7 +13,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "npm run build && npm run start -- --port 4173",
+    command: "npm run build && npx wrangler dev --config tests/browser/wrangler.jsonc --port 4173",
     url: "http://127.0.0.1:4173/api/health",
     reuseExistingServer: false,
     timeout: 120_000,

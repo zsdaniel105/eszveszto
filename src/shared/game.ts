@@ -125,6 +125,7 @@ export type Action =
   | ({ type: "skip-attack" } & PhaseContext)
   | ({ type: "vote"; categoryId: string } & PhaseContext)
   | ({ type: "answer"; optionIndex: number } & PhaseContext)
+  | ({ type: "ice-tap" } & PhaseContext)
   | { type: "rematch"; sessionId: string; phaseId: string };
 export type ServerMessage =
   | { type: "state"; room: PublicRoom; playerId: string; serverTime: number }
@@ -220,6 +221,20 @@ export interface AnswerResult {
   multiplier: 1 | 2;
   total: number;
   responseTimeMs: number | null;
+  wrongAttempts?: number;
+  mistakePenalty?: number;
+  attempts?: { optionIndex: number; correct: boolean }[];
+}
+export interface PublicIce {
+  requiredTaps: number;
+  acceptedTaps: number;
+  broken: boolean;
+}
+export interface PublicFinale {
+  attempts: { optionIndex: number; correct: boolean }[];
+  eliminatedOptions: number[];
+  wrongAttempts: number;
+  finished: boolean;
 }
 export interface RoundResult {
   correctIndex: number;
@@ -237,6 +252,8 @@ export interface PublicGame extends PhaseContext {
   myVote: string | null;
   question: PublicQuestion | null;
   myAnswer: number | null;
+  myIce: PublicIce | null;
+  myFinale: PublicFinale | null;
   answeredPlayerIds: string[];
   result: RoundResult | null;
   ranking: Ranking[];

@@ -492,6 +492,13 @@ function RoomView({
   async function act(
     action: Action | { type: "ready"; value: boolean } | { type: "start" },
   ) {
+    // Ice taps have their own bounded pending set. Do not serialize every tap
+    // behind the global form busy flag or wait for a network round trip.
+    if (action.type === "ice-tap") {
+      if (!client.current) throw new Error("Várd meg, amíg újra kapcsolódunk!");
+      await client.current.send(action);
+      return;
+    }
     if (busy) return;
     setBusy(true);
     setError("");

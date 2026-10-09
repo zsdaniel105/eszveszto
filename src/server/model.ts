@@ -1,4 +1,4 @@
-import { isAbilityId } from "../shared/sabotage";
+import { isAbilityId, SABOTAGE_BALANCE } from "../shared/sabotage";
 import {
   advanceQuiz,
   initializeQuiz,
@@ -40,7 +40,7 @@ export interface StoredRoom extends Omit<
   players: StoredPlayer[];
   lastActivityAt: number;
   createHash: string;
-  schemaVersion: 3;
+  schemaVersion: 4;
   quiz: StoredQuiz | null;
   recentQuestionIds: string[];
 }
@@ -116,6 +116,8 @@ export function parseAction(value: unknown): Action {
       };
     case "skip-attack":
       return { type: "skip-attack", ...parseContext(a) };
+    case "ice-tap":
+      return { type: "ice-tap", ...parseContext(a) };
     case "vote": {
       if (typeof a.categoryId !== "string" || a.categoryId.length > 30) break;
       return { type: "vote", categoryId: a.categoryId, ...parseContext(a) };
@@ -164,9 +166,9 @@ function parseContext(a: Record<string, unknown>) {
   };
 }
 export function upgradeRoom(room: StoredRoom): boolean {
-  if (room.schemaVersion === 3) return false;
+  if (room.schemaVersion === 4) return false;
   // v2 active questions/results retain all deadlines, answers and scores.
-  if ((room.schemaVersion as number | undefined) !== 2) {
+  if (![2, 3].includes(room.schemaVersion as number)) {
     room.quiz = null;
     room.recentQuestionIds = [];
     room.notice = null;
@@ -185,8 +187,28 @@ export function upgradeRoom(room: StoredRoom): boolean {
         "Frissült a játék! Jelezzétek újra, hogy készen álltok, és indulhat a kvíz.";
     }
   }
-  if (room.quiz) room.quiz.sabotage ??= null;
-  room.schemaVersion = 3;
+  if (room.quiz) {
+    const q = room.quiz;
+    q.sabotage ??= null;
+    // A prepared legacy question keeps its single-answer rules, including an
+    // active finale. Only newly prepared questions switch to multi-guess.
+    q.answeringMode ??= "single";
+    q.finaleAttempts ??= {};
+    q.iceProgress ??= {};
+    for (const e of Object.values(q.sabotage?.effects ?? {})) {
+      e.iceRequiredTaps ??= e.counts.freeze
+        ? Math.min(5, 2 + e.counts.freeze)
+        : 0;
+      e.motionUnlockAt ??= e.frames.length
+        ? e.frames.at(-1)!.at +
+          (e.counts.roulette ? 0 : SABOTAGE_BALANCE.shuffleSettleMs)
+        : e.freezeUntil -
+          (e.counts.freeze
+            ? SABOTAGE_BALANCE.freezeMs[Math.min(4, e.counts.freeze) - 1]
+            : 0);
+    }
+  }
+  room.schemaVersion = 4;
   room.revision++;
   return true;
 }
@@ -262,7 +284,7 @@ export function createRoom(
     lastActivityAt: now,
     session: null,
     createHash: player.credentialHash,
-    schemaVersion: 3,
+    schemaVersion: 4,
     quiz: null,
     recentQuestionIds: [],
     notice: null,
@@ -375,6 +397,7 @@ export function applyAction(
     action.type === "answer" ||
     action.type === "rematch" ||
     action.type === "attack" ||
+    action.type === "ice-tap" ||
     action.type === "skip-attack"
   ) {
     quizAction(room, playerId, action, now);

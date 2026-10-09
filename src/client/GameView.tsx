@@ -84,6 +84,16 @@ export function GameView({
 }) {
   useGameViewport();
   const game = room.game!;
+  useEffect(() => {
+    if (room.phase === "question") return;
+    try {
+      const prefix = `eszveszto:slime:${playerId}:`;
+      for (const key of Object.keys(localStorage))
+        if (key.startsWith(prefix)) localStorage.removeItem(key);
+    } catch {
+      /* Optional visual state. */
+    }
+  }, [room.phase, game.phaseId, playerId]);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 100);
@@ -244,6 +254,10 @@ export function GameView({
               playerId={playerId}
               myAnswer={game.myAnswer}
               disabled={disabled}
+              ice={game.myIce}
+              finale={game.myFinale}
+              online={online && remaining > 0}
+              onIceTap={() => onAction({ type: "ice-tap", ...context })}
               onAnswer={(index) =>
                 void onAction({
                   type: "answer",
@@ -257,7 +271,11 @@ export function GameView({
                 ? "✓ Válaszod rögzítve. Várjuk a többieket!"
                 : remaining === 0
                   ? "Lejárt az idő. Érkezik az eredmény…"
-                  : "Egy válasz, egy esély. Válassz, amíg tart az idő!"}
+                  : game.myFinale
+                    ? game.myFinale.wrongAttempts
+                      ? `Nem talált! Próbáld újra! ${game.myFinale.wrongAttempts} hibás tipp · −${game.myFinale.wrongAttempts * 30} alappont`
+                      : "Döntő: próbálkozhatsz újra. Hibánként −30 alappont, a végén dupla pont!"
+                    : "Egy válasz, egy esély. Válassz, amíg tart az idő!"}
             </p>
             <div className="question-bottom">
               <span>
@@ -310,6 +328,15 @@ export function GameView({
                 <strong>+{result?.total ?? 0}</strong>
               </div>
             </div>
+            {result?.wrongAttempts !== undefined && (
+              <p className="finale-breakdown">
+                {result.attempts?.length ?? 0} tipp · {result.wrongAttempts}{" "}
+                hibás · −{result.mistakePenalty} alappont
+                {result.correct
+                  ? ` · 100 − ${result.mistakePenalty} = ${result.basePoints} megmaradt alappont`
+                  : " · Helyes válasz nélkül 0 pont"}
+              </p>
+            )}
             <details className="result-attacks">
               <summary>Szabotázs ebben a körben</summary>
               <AttackSummary game={game} full />
@@ -338,12 +365,15 @@ export function GameView({
         {room.phase === "finale" && (
           <div className="finale-announcement">
             <span aria-hidden="true">⚡</span>
-            <h1>ITT A DÖNTŐ!</h1>
+            <h1>🔥 DÖNTŐ – TÖBB ESÉLY, KEVESEBB PONT!</h1>
             <p>
-              Mostantól minden helyes válasz és gyorsasági bónusz{" "}
-              <strong>duplán számít.</strong>
+              A hibás válasz kiesik, és újra próbálkozhatsz. Hibánként{" "}
+              <strong>−30 alappont.</strong>
             </p>
-            <p>A pontjaid megmaradnak. Még bármi megtörténhet!</p>
+            <p>
+              (100 − hibák × 30 + gyorsaság) × 2. Csak a helyes válaszért jár
+              pont, 15 másodpercen belül!
+            </p>
           </div>
         )}
         {room.phase === "final-results" && (

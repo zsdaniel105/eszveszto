@@ -13,6 +13,7 @@ import {
   publicRoom,
 } from "../src/server/model";
 import { advanceQuiz } from "../src/server/quiz";
+import { combineEffects } from "../src/server/sabotage";
 
 function audioFixture() {
   let time = 0,
@@ -135,6 +136,77 @@ function roomFixture() {
   return { room, host, guest, now };
 }
 describe("truthful multiplayer sound events", () => {
+  it("uses only confirmed own ice/guess progress and awards finale points once", () => {
+    const { room, host, guest, now } = roomFixture();
+    host.ready = guest.ready = true;
+    applyAction(
+      room,
+      host.id,
+      { type: "start", settingsRevision: room.settingsRevision },
+      now,
+    );
+    while (room.phase !== "question" || room.quiz!.round !== 5)
+      advanceQuiz(room, room.quiz!.deadline!);
+    const q = room.quiz!,
+      at = q.phaseStartedAt,
+      c = { sessionId: q.sessionId, phaseId: q.phaseId, round: q.round };
+    q.sabotage!.effects[host.id] = combineEffects(
+      [
+        {
+          attackerId: guest.id,
+          targetId: host.id,
+          abilityId: "freeze",
+          outcome: "applied",
+        },
+      ],
+      at,
+      4,
+    );
+    let previous = publicRoom(room, host.id);
+    for (let n = 0; n < 3; n++) {
+      applyAction(room, host.id, { type: "ice-tap", ...c }, at + n * 100);
+      const current = publicRoom(room, host.id);
+      expect(
+        roomSoundEvents(previous, current, host.id).map((e) => e.cue),
+      ).toEqual([n === 2 ? "ice-shatter" : "ice-crack"]);
+      expect(roomSoundEvents(current, current, host.id)).toEqual([]);
+      expect(roomSoundEvents(null, current, host.id)).toEqual([]);
+      previous = current;
+    }
+    applyAction(
+      room,
+      host.id,
+      { type: "answer", optionIndex: (q.correctIndex + 1) % 4, ...c },
+      at + 300,
+    );
+    let current = publicRoom(room, host.id);
+    expect(
+      roomSoundEvents(previous, current, host.id).map((e) => e.cue),
+    ).toEqual(["wrong"]);
+    previous = current;
+    applyAction(
+      room,
+      host.id,
+      { type: "answer", optionIndex: q.correctIndex, ...c },
+      at + 400,
+    );
+    current = publicRoom(room, host.id);
+    expect(
+      roomSoundEvents(previous, current, host.id).map((e) => e.cue),
+    ).toEqual(["correct"]);
+    previous = current;
+    applyAction(
+      room,
+      guest.id,
+      { type: "answer", optionIndex: q.correctIndex, ...c },
+      at + 500,
+    );
+    current = publicRoom(room, host.id);
+    expect(
+      roomSoundEvents(previous, current, host.id).map((e) => e.cue),
+    ).toEqual(["finale-points"]);
+    expect(roomSoundEvents(current, current, host.id)).toEqual([]);
+  });
   it("ignores initial/reconnected state and repeated snapshots; ready/vote requires accepted state", () => {
     const { room, host, guest, now } = roomFixture();
     let before = publicRoom(room, host.id);
