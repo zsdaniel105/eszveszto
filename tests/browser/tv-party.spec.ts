@@ -342,10 +342,15 @@ test("TV Party: one authenticated Display and two phones play a full match with 
         expect(snapshots.display!.game!.deadline).toBe(deadline);
         expect(snapshots.display!.players).toHaveLength(2);
       }
-      if (round >= 5)
+      if (round >= 5) {
         await one.locator(".game-card").evaluate(async (node) => {
           await Promise.all(node.getAnimations().map((a) => a.finished));
         });
+        await one
+          .locator(".answer-card")
+          .filter({ has: one.getByText(answer, { exact: true }) })
+          .scrollIntoViewIfNeeded();
+      }
       const firstBoxes = round >= 5 ? await answerBoxes(one) : null;
       await correct(one, answer);
       if (round >= 5) {
@@ -354,6 +359,13 @@ test("TV Party: one authenticated Display and two phones play a full match with 
           await Promise.all(node.getAnimations().map((a) => a.finished));
         });
         expect(await answerBoxes(one)).toEqual(firstBoxes);
+        // Short screens intentionally scroll the inner panel to reach an
+        // answer. Measure after making this target visible, so the strict
+        // assertion detects guess-driven movement rather than that scroll.
+        await two
+          .locator(".answer-card")
+          .filter({ has: two.getByText(wrong, { exact: true }) })
+          .scrollIntoViewIfNeeded();
         const boxes = await answerBoxes(two);
         await correct(two, wrong);
         await expect(two.locator(".answer-card.eliminated")).toHaveCount(1);
