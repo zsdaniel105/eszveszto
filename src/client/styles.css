@@ -3222,6 +3222,7 @@ body[data-gameplay] .game-card {
   grid-auto-rows: minmax(135px, auto);
 }
 .controller-mode .answer-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -3229,6 +3230,15 @@ body[data-gameplay] .game-card {
   align-items: center;
   gap: 10px;
   padding: 16px 10px;
+}
+.controller-mode .answer-marker {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
 }
 .controller-mode .answer-text {
   font-size: clamp(15px, 4vw, 23px);
