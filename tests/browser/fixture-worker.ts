@@ -41,15 +41,23 @@ export class Room extends ProductionRoom {
       (this as unknown as { room: StoredRoom }).room = room;
       await this.testContext.storage.put("room", room);
       for (const ws of this.testContext.getWebSockets()) {
-        const { playerId } = ws.deserializeAttachment() as {
+        const { playerId, displayId } = ws.deserializeAttachment() as {
           playerId: string | null;
+          displayId?: string | null;
         };
-        if (playerId && ws.readyState === WebSocket.OPEN)
+        const identity = displayId
+          ? { role: "display" as const, id: displayId }
+          : playerId
+            ? { role: "player" as const, id: playerId }
+            : null;
+        if (identity && ws.readyState === WebSocket.OPEN)
           ws.send(
             JSON.stringify({
               type: "state",
-              room: publicRoom(room, playerId),
-              playerId,
+              room: publicRoom(room, identity),
+              playerId: playerId ?? "",
+              identityId: identity.id,
+              role: identity.role,
               serverTime: Date.now(),
             }),
           );

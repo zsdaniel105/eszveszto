@@ -223,3 +223,88 @@ A PR #5 tesztek a korábbi lefedettséget megtartják, az engedélyezett új dö
 Chromium-tesztek valódi két-/nyolcklienses partit futtatnak; az első kétklienses körben determinisztikus ajánlat biztosítja a slime/Freeze interakciót. Canvas-pixelváltozás, egy koppintás hatástalansága, touch/mouse és billentyűzetes törlés, frissítés utáni részleges nyom, jégtörés, hibás- majd helyes döntőtipp, saját elimináció/reconnect, pontlevonás, végeredmény és rematch. 320/375/390/430 px és desktop, csökkentett mozgás, no-document-scroll és belső panel fallback. Fizikai iOS/Android teszt nem történt; késés mellett a rövid Freeze hamarabb felolvadhat, mint ahogy minden koppintás szerverhez ér. A vizuális tisztítás nem manipulálhatatlan, eszközök között nem szinkronizált; a szerveres zár/idő/tipp/pont szabályok hitelesek.
 
 Végső ellenőrzés: 127 sikeres szabály-/Workers-teszt, 6 sikeres Chromium-teszt, ESLint, TypeScript, éles build és Wrangler deploy dry run. A teljes böngészőfutás 3,5 perc alatt fejeződött be valódi termékidőkkel. Éles telepítés és fizikai telefonos teszt nem történt. Tényleges képek a [képdokumentációban](screenshots/README.md#pr-5--tényleges-maszktörlés). Következő PR: valódi mobil és társas teszt, hozzáférhetőségi játékpróba és balanszhangolás; a tartalmi audit külön mérföldkő marad.
+
+## PR #6: két játékmód, kijelző és telefonos vezérlők
+
+### Mód, szerep, házigazda és résztvevő
+
+Két támogatott mód van. `normal` / **Normál kvíz** a kompatibilis alapértelmezés: a létrehozó hitelesített játékos és házigazda, minden eszköz kérdést és válaszokat mutat. `tv-party` / **TV Party** létrehozója hitelesített, nem játszó kijelző; a telefonok a meglévő játékos-identitással csatlakoznak. Egyetlen `Room`, `quiz.ts`, kérdésbank, fázishurok és pontozás marad, második háttérrendszer nélkül. A mód a létrehozáskor rögzül, új parti sem változtatja meg.
+
+Négy külön fogalom: a szoba `mode` mezője; a hitelesített kapcsolat `role: player | display` és identitás-ID; a szobában tárolt `hostRole` + `hostId` jogosultságpár; a kvíz `participants` valódi játékosai. A kijelző saját `display` rekordja soha nem kerül a játékoslistába vagy a pontozásba. Nem rejtett kilencedik játékos, nincs beceneve, karaktere vagy készenléte. Legfeljebb egy kijelző-identitás és nyolc valódi játékos lehet; indításhoz minden jelenlegi játékos kapcsolódó/kész, legalább kettő. Beállításmódosítás továbbra is minden készenlétet töröl.
+
+### Létrehozás, belépés és jogosultságok
+
+A meglévő létrehozási űrlap „Játékosként / Normál kvíz” és „Kijelzőként / TV Party” kártyát mutat, előbbi az alapérték. Kijelzőhöz nem kér nevet/karaktert; közvetlenül létrejön a nulla játékosú TV előszoba. Hétkarakteres kód, az aktuális eredet `/join/<kód>` meghívója és helyben generált QR jelenik meg. `qrcode-generator` automatikus verzió, M hibajavítás, négy modul széles fehér védősáv és fekete SVG modulok; nincs hálózati QR-kérés. A tényleges URL-t mátrixból és a renderelt SVG képpontjaiból is dekódoló teszt ellenőrzi (`jsqr` csak fejlesztési függőség). A meghívó a játékosok meglévő neves/karakteres belépése, nem kijelző-hitelesítés.
+
+| Hitelesített szerep | Engedélyezett művelet |
+| --- | --- |
+| Kijelző házigazda | Beállítás, indítás, új parti, saját kijelző bezárása. Nincs gameplay-művelet. |
+| Kijelző néző, szerepátadás után | Élő közös állapot követése, saját kijelző bezárása. Nincs adminisztráció vagy gameplay. |
+| Játékos házigazda | Meglévő adminisztráció és játékos-műveletek; TV Partyban is valódi résztvevő. |
+| Közönséges játékos | Saját karakter/készenlét, szavazat, támadás/kihagyás, jégtörés, válasz és kilépés. |
+
+Az API létrehozás/resume `role` mezőjét futásidőben ellenőrzi; hiányzó mező régi `player`. A `/join` csak játékost enged. A böngésző ugyanazzal a meglévő kriptográfiai mechanizmussal 256 bites titkot generál; a kijelző szerveren csak SHA-256 hashként tárolja. Első WebSocket-üzenetben a szerephez megfelelő hash kell, nem elég a kliens szerepállítása. Kijelzőtitok nem használható játékosként, játékostitok nem használható kijelzőként. A kód, publikus ID és QR nem ad házigazdai jogot. A role/id kötés a szerveres attachment része; client-supplied ID nem hitelesítés.
+
+Az `applyAction` kijelzőnél még a kvízműveletek előtt `PLAYER_ONLY` hibával tiltja a karakter/készenlét/szavazat/támadás/kihagyás/jégtörés/válasz műveletet. Adminisztrációnál az aktuális szerep és ID is egyezik a tárolt házigazdával. A meglévő request-ID deduplikáció kijelzőnél is tartós, 32 elfogadott kérés; mentés megelőzi az ACK/broadcastot. Hitelesítetlen socket nem kap állapotot/jogot. Dupla kapcsolat csak ugyanazt a szerepkötött identitást váltja fel; a régi socket attachmentje kiürül és 4002 kóddal bezár. Üzenetméret, origin, HTTP/WS rate limit, heartbeat és hibernáció továbbra is a meglévő rendszer része.
+
+### Kijelző- és telefonfázisok
+
+| Fázis | Közös kijelző | TV Party telefon |
+| --- | --- | --- |
+| Előszoba | QR/kód/meghívó, valódi csapat karakterei és készenléte, beállítások és Indítás | Saját identitás/karakter, készenlét, TV Party jelzés, várakozás |
+| Kategória | Három közös lehetőség és határidő; csak szavazási haladás a lezárásig | Három szavazógomb, saját elfogadott választás |
+| Szabotázsválasztás | „Indul a szivatás!”, idő és döntést rögzített játékosok száma | Három privát képesség, utána ellenfél, kihagyás, ACK utáni várakozás |
+| Támadásbemutató | Valóban rögzített támadások, képesség/támadó/célpont és kilépett célpont jelzése | Saját bejövő/kimenő támadás |
+| Kérdés | Domináns közös kérdés, kategória, sorszám, idő, teljesítési haladás, karakterek | Négy nagy kanonikus válasz, saját pont/hatás/idő; alapból nincs kérdésszöveg |
+| Eredmény | Most már nyilvános helyes válasz, magyarázat, közös körpontok | Saját választás, döntőtipp-összesítés, helyesség és pontlevezetés |
+| Ranglista | Teljes ranglista, karakterek, helyváltozás, vezetők/holtversenyek | Saját helyezés és pont |
+| Döntőbejelentés | Dupla pontos közös átmenet és meglévő hibalevonási szabály | Rövid szinkron jelzés, változatlan szabály |
+| Végeredmény | Nyertes/holtverseny, teljes sorrend, házigazdai Új parti | Saját statisztika/helyezés, várakozás; átadott házigazdánál Új parti |
+
+A kijelző 16:9-re komponált, külön nézet a meglévő arculatban. Opcionális Fullscreen API csak kattintásra/billentyűzetes aktiválásra, tényleges állapotkövetéssel; tiltás/nem támogatott böngésző magyar visszajelzést kap. Natív gombok Tab/Enter/Space használattal és iránygombos fókuszléptetéssel. 1920×1080, 1366×768, 1280×720 és 1024×768 ellenőrzött. A kijelző visszaszámlálása egy kicsi komponens saját intervalluma: a nagy kérdés/karakterlista nem renderelődik emiatt tízszer másodpercenként. A szerveróra-eltérés becslése a meglévő transportból érkezik. Egy kapcsolat, WebSocket-broadcast és Durable Object van; nincs polling.
+
+A TV telefon a meglévő `GameView` és `QuestionEffects` vezérlőihez ad elrendezést: kétoszlopos, nagy gombok, azonos kanonikus kulcsok, szerveres idő/zár és személyes hatások. A kérdés renderelése ténylegesen feltételes, nincs CSS-sel elrejtett nagy üres blokk. Egyéni „Kérdés mutatása” választás az `eszveszto:controller-question` helyi kulcsban marad, pontozásra/szerverállapotra nincs hatása. Safe-area, érintési minimum, fókusz, reduced-motion és szükséges belső görgetési fallback megmarad. Normál kvíz mindig kérdést is mutat, a preferenciától függetlenül.
+
+A hat szabotázs teljes egészében a telefonon működik, ugyanazzal a maszktörléssel, szerveres jégtöréssel, legfeljebb 2 mp közös zárral, megjelenítési permutációkkal, fejre állítással és foltkorlátokkal. A kijelző nem kap személyes effekt-konfigurációt. A döntő különböző saját kanonikus tippeket, privát eliminációt és az eddigi `(100 − 30 × hiba + gyorsaság) × 2` képletet használja. A kijelző nem lát más játékos rossz tippjét a lezárásig. Határidők 8/10/1,5/15/4/4/2 mp változatlanok; nincs új bejelentés, extra várakozás, TV-pontozás vagy kliensoldali fázisléptetés.
+
+### Nyilvános állapot és titkok
+
+`publicRoom(room, identity)` a szerepből képez vetületet. Játékos a saját ID szerinti kvízprojekciót kapja. Kijelző soha nem egy tetszőleges játékos projekcióját: `publicQuiz` játékos-ID nélkül készül, kifejezett kijelzőjelzővel. `myVote`, `myAnswer`, `myFinale`, `myIce` és saját támadás `null`; ajánlat/célpont-lista üres, személyes effekt/tipptörténet nincs. Szavazási haladás csak ID-lista, lezárásig nincs választás/tally. `sharedAttacks` csak feloldott támadások után kerül a kijelzőnek küldött állapotba, valamennyi elfogadott rekorddal. Kérdés alatt csak aktuális publikus prompt/opció/kategória/sorszám/határidő és teljesítési állapot látszik; megoldóindex/magyarázat a meglévő lezáráskor jön.
+
+A `display` nyilvános mezői explicit engedélylistán: ID, kapcsolódás, kapcsolatvesztés ideje, lejárt türelem. Hash/recentActions/nyers titok nem kerül a publikus szobába. Nincs megoldás rejtett DOM-adatban, bank vagy belső random adat a kijelzőn. A teljes ranglista és lezárt eredmény továbbra is nyilvános közös játékadat. A szerep nem ad új betekintést a bankba vagy a magánműveletekbe.
+
+### Reconnect, fallback, átadás és szobaéletciklus
+
+A kijelző ugyanazon eredet szobánként mentett sessionje a `role: display` mezőt és titkot őrzi; frissítés/resume csak a létező identitást hitelesíti, nem hoz létre másik kijelzőt vagy játékost. Hibernált socket attachment visszaáll szerepkötötten; restart utáni elveszett socket offline-ként egyeztetődik a tárolt rekorddal. Kvíz, pont, tipp, jéghaladás és abszolút határidő megmarad. Sem a telefon, sem a kijelző frissítése nem új kérdésindítás.
+
+A szerver észlelt kijelző-offline állapotánál **azonnal** láthatóvá válik a kérdés a TV telefonon. Rendes bezárás észlelése gyors, megszakadt hálózat/alvás a meglévő 20 mp ping / 65 mp szerver-timeout alapján legfeljebb a detektálási ablakban késhet. Addig az egyéni kérdésmutatás is elérhető. A visszatérő kijelző ismét aktív: a kényszerített fallback megszűnik, de a külön engedélyezett személyes kérdésmutatás marad. Ezt a kliens nem offline-találgatásból, hanem hitelesített közös állapotból dönti el.
+
+**Házigazdai szabály:** a szerver az észlelt kapcsolatvesztéstől 90 mp-ig fenntartja a Display Host szerepet. Utána kapcsolódó, nem lejárt játékosok közül a legkorábbi `joinedAt`, egyezésnél ID szerinti első kapja a `hostRole: player` jogosultságot. Kérdés/hatás/pont/fázis közben nem változik. Ha nincs jogosult kapcsolódó játékos, üres a házigazda-ID, a következő hitelesített visszatérő játékos kapja meg. A kijelző visszatérhet nézőként az eredeti titkával, de nem kapja vissza automatikusan a szerepet. Játékos-házigazda későbbi kiesése ugyanígy kapcsolódó játékosnak adja tovább. Szobakód vagy kliens állítása nem lehet átvételi út.
+
+Kifejezett „Kijelző bezárása” azonnal törli a display-identitást/visszavonja titkát, és ugyanígy játékosnak adja a szerepet. A telefonos parti folytatódik, kérdés-fallback elérhető. A kijelző bezárása saját session kilépése, nem játékosok kényszerkiléptetése. Új parti az aktuális jogosult házigazdától: mód, kijelző, karakterek, szobakód és kapcsolódó identitások maradnak; az eddigi kvíz/pont/hatás/tipp törlődik, játékosok unready állapotban az előszobába kerülnek.
+
+Kapcsolódó kijelző önmagában megtartja az üres előszobát. Még nem hitelesített/létrehozás után elveszett kijelző 90 mp grace-t kap; játékos nélküli, lejárt kijelzőszoba törlődik. A 2 órás aktivitás nélküli és 24 órás abszolút lejárat aktív kijelző mellett is érvényes, heartbeat nem frissít aktivitást. Az alarm a kijelző grace/heartbeat idejét a korábbi fázis/játékos/lejárat határidőkhöz adja. A változatlan, korlátozott catch-up hurok kliens nélkül is halad és egyszer pontoz. Nincs extra Durable Object vagy örökké megtartott árva szoba.
+
+### Tárolási kompatibilitás és telepítés
+
+Additív `schemaVersion:5`: `mode`, `hostRole`, `display` (külön ID/hash/kapcsolat/grace/recentActions). A 2/3/4-es szoba `normal`, `player`, `null` alapértékeket kap. A korábbi host-ID, lobbyidentitás, beállítás, question-ID/opciósorrend, pont/attempt/ice/effect rekord, fázis-ID és abszolút idő nem íródik át; a PR #5 additív pótlások továbbra is elérhetők. Régi, csak playerId-t tartalmazó hibernációs attachment és role nélküli böngésző-session játékos marad. A normál HTTP létrehozás/join/resume válasz korábbi alakja megmaradt; Display válasz külön `displayId` és `role` mezőt ad.
+
+Worker `eszveszto`, `Room` osztály, SQLite `v1`, `ROOMS`/`ASSETS`/`ROOM_LIMITER`, assetkezelés, éles build és feature-preview izoláció változatlan. Új adatbázis, titok, szolgáltatás és infra-migráció nincs. Wrangler deploy dry run a felépített Worker/asset/binding konfigurációt ellenőrzi, nem éles telepítés. A GitHub → Codex Cloud → PR → Workers Builds munkafolyamat marad; a tulajdonosnak nem kell helyi fejlesztőkörnyezetet futtatnia.
+
+### Hangok, felolvasás bővítési pontja és korlátok
+
+A meglévő gesztushoz kötött, némítható Web Audio a közös kategória/szabotázs/kérdés/döntő/győzelem hangot a kijelzőn játssza. Telefonon saját kész/szavazat, személyes támadás/folt/jég/tipp/eredmény/rangjavulás marad, nincs minden eszközön egyszerre közös hangos bejelentés. Refresh/reconnect néma baseline, ismételt snapshot és ugyanaz a szerveres esemény deduplikált. Autoplay szabály nem változik.
+
+Későbbi magyar felolvasás a `DisplayView` közös question-ID/phase-ID/határidő adatait fogyasztó külön hook/adapter lehet, egy kijelzőoldali vezérlővel és opcionális hangválasztással. A narration-időt és a kérdéshatáridőt előbb külön termékdöntésben kell összehangolni. Most nincs Speech API, TTS-függőség, külső szolgáltatás, voice beállítás vagy hosszabb kérdésidő.
+
+Fizikai TV, iPhone vagy Android készülék nem volt tesztelve: a képek Chromium CSS-pixeles viewport/érintésemulációból készülnek. A QR távolsági olvashatósága kijelzőtől/kamerától függ; kézi kód/meghívó mindig alternatíva. A teljes képernyő browser-policy függő, a normál ablak támogatott. Nagy szöveg, szélsőségesen rövid kijelző vagy kisebb mint 900 px szélesség hozzáférhető belső panelgörgetést használhat. Titok elvesztése/tár törlése esetén a kijelző nem állítható vissza pusztán szobakóddal; biztonságos játékos-átadás megakadályozza a rematch deadlockot. A kliensvizuális hatások továbbra sem manipulálhatatlanok; a szerver ellenőrzi az időzítési, pontozási és szerepszabályokat.
+
+### PR #6 ellenőrzési eredmények és következő mérföldkő
+
+167 sikeres Vitest szabály-/Workers-teszt: a 127 korábbi mellett 40 új. Mód/létrehozás, nulla játékosú aktív kijelző, nyolc hely/kilencedik játékos elutasítása, valódi ready-szabály, szerep- és credential-isolation, minden kijelző-gameplay tiltása, admin/dedup, private projection, valamennyi hatás és többtippes döntő TV módban, saját elimináció/levonás, 6/12/18 kérdés, rematch és v4→v5 kompatibilitás. Valódi HTTP/WS/SQLite és rekonstrukciós tesztek: display resume/duplicate socket/explicit revoke, kérdés közbeni score/deadline megőrzése, pontos 90 mp host-fallback, visszatérő kijelző nézőként és rematch jogosultság, legacy player attachment, késői catch-up, üres/orphan room és mindkét lejárat. A várakozási időt gyorsító Workers-fixture csak teszttárolásban működik; a reveal/effect kezdetét együtt kezeli. A pont, válasz és átadás a termékkódban fut.
+
+9 sikeres Playwright Chromium-forgatókönyv, 5,6 perc teljes futás. A hat korábbi Normál kvíz teszt megmaradt, valódi két-/nyolcklienses teljes partival, sabotázzsal, többtippes döntővel, tisztítással, hanggal és új partival. Három új TV teszt: (1) független kijelző és két telefon teljes hatkérdéses partija, valódi QR, privát választás, touch/mouse/keyboard takony és szerveres jégtörés, kijelző/telefon refresh, saját hibás döntőtipp/levonás, pontos összpont és rematch; (2) valódi kijelző-bezárás/offline snapshot, automatikus telefonos kérdés, reconnect, megmaradó explicit preferencia, valódi fullscreen és kifejezett kilépés/azonnali szerepátadás; (3) kijelző + nyolc külön telefon, nyolc karakter/készenlét, hét elfogadott támadás ugyanarra a telefonra, korlátos effekt és mind a nyolc valódi helyes válasz/pont, közös eredmény/ranglista. Az első kétfős kör tesztoldali ajánlata rögzített Freeze/slime, a nyolcfős ajánlat valódi véletlen; nincs éles fixture-útvonal vagy módosított pont/idő.
+
+ESLint, TypeScript, termékbuild, teljes Vitest/E2E és Wrangler deploy dry run sikeres. 1920×1080/1366×768/1280×720/1024×768 kijelző és 320/375/390/430 px telefon: vízszintes túlcsordulás/dokumentumgörgetés, érintési minimum, tényleges QR-render, alapból hiányzó telefonos prompt, stabil finale-gombrács és nyolcfős megjelenítés is ellenőrzött. [Ellenőrzött tényleges képek](screenshots/README.md#pr-6--közös-kijelző-és-telefonos-vezérlők). Nem fizikai készülékpróba és nem kézi éles deploy.
+
+Ajánlott következő PR: valódi TV/laptop + iOS/Android társas játékpróba, hozzáférhetőség, Wi-Fi/alvás/reconnect és QR távolsági kalibráció. Magyar narration külön mérföldkő, a kijelzőoldali cserefelületen és külön jóváhagyott időzítési szabállyal. Kérdésbank/content audit továbbra is önálló feladat; ez a PR nem ad új kérdést, karaktert, képességet vagy szolgáltatást.

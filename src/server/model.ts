@@ -18,6 +18,9 @@ import {
   type Player,
   type PublicRoom,
   type Settings,
+  type ConnectionRole,
+  type Display,
+  type Identity,
 } from "../shared/game";
 export class RoomError extends Error {
   constructor(
@@ -33,14 +36,19 @@ export interface StoredPlayer extends Player {
   recentActions: string[];
   graceExpired: boolean;
 }
+export interface StoredDisplay extends Display {
+  credentialHash: string;
+  recentActions: string[];
+}
 export interface StoredRoom extends Omit<
   PublicRoom,
-  "players" | "expiresAt" | "game"
+  "players" | "expiresAt" | "game" | "display"
 > {
+  display: StoredDisplay | null;
   players: StoredPlayer[];
   lastActivityAt: number;
   createHash: string;
-  schemaVersion: 4;
+  schemaVersion: 5;
   quiz: StoredQuiz | null;
   recentQuestionIds: string[];
 }
@@ -72,6 +80,18 @@ export function validateCredential(value: unknown): string {
       "Érvénytelen belépési azonosító. Lépj be újra!",
     );
   return value;
+}
+export function validateRole(value: unknown): ConnectionRole {
+  if (value === undefined || value === "player") return "player";
+  if (value === "display") return "display";
+  throw new RoomError("INVALID_ROLE", "Érvénytelen kapcsolati szerep.");
+}
+export function actor(room: StoredRoom, identity: Identity) {
+  return identity.role === "display"
+    ? room.display?.id === identity.id
+      ? room.display
+      : undefined
+    : room.players.find((p) => p.id === identity.id);
 }
 export function validateSettings(value: unknown): Settings {
   const s = record(value);
@@ -166,9 +186,9 @@ function parseContext(a: Record<string, unknown>) {
   };
 }
 export function upgradeRoom(room: StoredRoom): boolean {
-  if (room.schemaVersion === 4) return false;
+  if (room.schemaVersion === 5) return false;
   // v2 active questions/results retain all deadlines, answers and scores.
-  if (![2, 3].includes(room.schemaVersion as number)) {
+  if (![2, 3, 4].includes(room.schemaVersion as number)) {
     room.quiz = null;
     room.recentQuestionIds = [];
     room.notice = null;
@@ -208,7 +228,10 @@ export function upgradeRoom(room: StoredRoom): boolean {
             : 0);
     }
   }
-  room.schemaVersion = 4;
+  room.mode ??= "normal";
+  room.hostRole ??= "player";
+  room.display ??= null;
+  room.schemaVersion = 5;
   room.revision++;
   return true;
 }
@@ -223,8 +246,26 @@ export function expiry(room: StoredRoom): number {
     room.lastActivityAt + ROOM_IDLE_MS,
   );
 }
-export function publicRoom(room: StoredRoom, viewerId?: string): PublicRoom {
+export function publicRoom(
+  room: StoredRoom,
+  viewer?: string | Identity,
+): PublicRoom {
+  const identity =
+    typeof viewer === "string"
+      ? { role: "player" as const, id: viewer }
+      : viewer;
+  const display = room.display;
   return {
+    mode: room.mode,
+    hostRole: room.hostRole,
+    display: display
+      ? {
+          id: display.id,
+          connected: display.connected,
+          disconnectedAt: display.disconnectedAt,
+          graceExpired: display.graceExpired,
+        }
+      : null,
     id: room.id,
     code: room.code,
     phase: room.phase,
@@ -235,7 +276,11 @@ export function publicRoom(room: StoredRoom, viewerId?: string): PublicRoom {
     createdAt: room.createdAt,
     expiresAt: expiry(room),
     session: room.session,
-    game: publicQuiz(room, viewerId),
+    game: publicQuiz(
+      room,
+      identity?.role === "player" ? identity.id : undefined,
+      identity?.role === "display",
+    ),
     notice: room.notice,
     players: room.players.map(
       ({
@@ -272,6 +317,9 @@ export function createRoom(
   now: number,
 ): StoredRoom {
   return {
+    mode: "normal",
+    hostRole: "player",
+    display: null,
     id: crypto.randomUUID(),
     code,
     phase: "lobby",
@@ -284,13 +332,59 @@ export function createRoom(
     lastActivityAt: now,
     session: null,
     createHash: player.credentialHash,
-    schemaVersion: 4,
+    schemaVersion: 5,
+    quiz: null,
+    recentQuestionIds: [],
+    notice: null,
+  };
+}
+export function makeDisplay(
+  credentialHash: string,
+  now: number,
+): StoredDisplay {
+  return {
+    id: crypto.randomUUID(),
+    credentialHash,
+    recentActions: [],
+    connected: false,
+    disconnectedAt: now,
+    graceExpired: false,
+  };
+}
+export function createDisplayRoom(
+  code: string,
+  display: StoredDisplay,
+  now: number,
+): StoredRoom {
+  return {
+    id: crypto.randomUUID(),
+    code,
+    mode: "tv-party",
+    hostRole: "display",
+    display,
+    phase: "lobby",
+    revision: 1,
+    hostId: display.id,
+    players: [],
+    settings: { ...DEFAULT_SETTINGS },
+    settingsRevision: 1,
+    createdAt: now,
+    lastActivityAt: now,
+    session: null,
+    createHash: display.credentialHash,
+    schemaVersion: 5,
     quiz: null,
     recentQuestionIds: [],
     notice: null,
   };
 }
 export function joinRoom(room: StoredRoom, player: StoredPlayer): StoredPlayer {
+  if (room.display?.credentialHash === player.credentialHash)
+    throw new RoomError(
+      "ROLE_CONFLICT",
+      "A kijelző belépése nem használható játékosként.",
+      403,
+    );
   const existing = room.players.find(
     (p) => p.credentialHash === player.credentialHash,
   );
@@ -328,19 +422,54 @@ export function removePlayer(room: StoredRoom, id: string): void {
   const participant = room.quiz?.participants.find((p) => p.id === id);
   if (participant) participant.left = true;
   room.players = room.players.filter((p) => p.id !== id);
-  if (room.hostId === id)
-    room.hostId =
-      [...room.players]
-        .filter((p) => !p.graceExpired)
-        .sort(
-          (a, b) =>
-            Number(b.connected) - Number(a.connected) ||
-            a.joinedAt - b.joinedAt ||
-            a.id.localeCompare(b.id),
-        )[0]?.id ?? "";
+  if (room.hostRole === "player" && room.hostId === id) transferToPlayer(room);
   room.revision++;
 }
+function transferToPlayer(room: StoredRoom) {
+  room.hostRole = "player";
+  room.hostId =
+    [...room.players]
+      .filter(
+        (p) => !p.graceExpired && (room.mode !== "tv-party" || p.connected),
+      )
+      .sort(
+        (a, b) =>
+          Number(b.connected) - Number(a.connected) ||
+          a.joinedAt - b.joinedAt ||
+          a.id.localeCompare(b.id),
+      )[0]?.id ?? "";
+  if (room.mode === "tv-party")
+    room.notice = room.hostId
+      ? "A kijelző házigazdai szerepét egy kapcsolódó játékos vette át. A parti folytatódik."
+      : "A házigazdai szerepet a következő visszatérő játékos veszi át.";
+}
+export function leaveDisplay(room: StoredRoom) {
+  const id = room.display?.id;
+  room.display = null; // Explicit leave revokes this credential, including resume.
+  if (room.hostRole === "display" && room.hostId === id) transferToPlayer(room);
+  room.revision++;
+}
+export function retainRoom(room: StoredRoom) {
+  return (
+    room.players.length > 0 || !!(room.display && !room.display.graceExpired)
+  );
+}
 export function pruneDisconnected(room: StoredRoom, now: number): boolean {
+  let displayGone = false;
+  const d = room.display;
+  if (
+    d &&
+    !d.connected &&
+    !d.graceExpired &&
+    d.disconnectedAt !== null &&
+    now - d.disconnectedAt >= DISCONNECT_GRACE_MS
+  ) {
+    d.graceExpired = true;
+    displayGone = true;
+    room.revision++;
+    if (room.hostRole === "display" && room.hostId === d.id)
+      transferToPlayer(room);
+  }
   const gone = room.players.filter(
     (p) =>
       !p.connected &&
@@ -353,41 +482,61 @@ export function pruneDisconnected(room: StoredRoom, now: number): boolean {
       p.graceExpired = true;
       room.revision++;
     }
-    if (!room.hostId || gone.some((p) => p.id === room.hostId)) {
-      room.hostId =
-        [...room.players]
-          .filter((p) => !p.graceExpired)
-          .sort(
-            (a, b) =>
-              Number(b.connected) - Number(a.connected) ||
-              a.joinedAt - b.joinedAt ||
-              a.id.localeCompare(b.id),
-          )[0]?.id ?? "";
-    }
-    return gone.length > 0;
+    if (
+      room.hostRole === "player" &&
+      (!room.hostId || gone.some((p) => p.id === room.hostId))
+    )
+      transferToPlayer(room);
+    return displayGone || gone.length > 0;
   }
   // Remove nonhosts first so transfer never chooses another expired player.
   for (const p of gone.sort(
     (a, b) => Number(a.id === room.hostId) - Number(b.id === room.hostId),
   ))
     removePlayer(room, p.id);
-  return gone.length > 0;
+  return displayGone || gone.length > 0;
 }
 export function applyAction(
   room: StoredRoom,
-  playerId: string,
+  viewer: string | Identity,
   action: Action,
   now: number,
 ): void {
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player || !player.connected)
+  const identity: Identity =
+    typeof viewer === "string" ? { role: "player", id: viewer } : viewer;
+  const member = actor(room, identity);
+  if (!member || !member.connected)
     throw new RoomError(
       "UNAUTHORIZED",
       "A kapcsolat megszakadt. Csatlakozz újra!",
       401,
     );
+  if (
+    identity.role === "display" &&
+    !["settings", "start", "rematch", "leave"].includes(action.type)
+  )
+    throw new RoomError(
+      "PLAYER_ONLY",
+      "Ezt a műveletet csak játékos végezheti. A kijelző nem játszik.",
+      403,
+    );
+  const playerId = identity.id;
+  const player =
+    identity.role === "player"
+      ? room.players.find((p) => p.id === playerId)!
+      : null;
+  if (
+    action.type === "rematch" &&
+    (room.hostRole !== identity.role || room.hostId !== identity.id)
+  )
+    throw new RoomError(
+      "HOST_ONLY",
+      "Az új partit a házigazda nyitja meg.",
+      403,
+    );
   if (action.type === "leave") {
-    removePlayer(room, playerId);
+    if (identity.role === "display") leaveDisplay(room);
+    else removePlayer(room, playerId);
     room.lastActivityAt = now;
     return;
   }
@@ -410,7 +559,7 @@ export function applyAction(
       409,
     );
   if (action.type === "settings" || action.type === "start") {
-    if (room.hostId !== player.id)
+    if (room.hostId !== identity.id || room.hostRole !== identity.role)
       throw new RoomError(
         "HOST_ONLY",
         "Ezt csak a házigazda módosíthatja.",
@@ -429,11 +578,11 @@ export function applyAction(
   }
   switch (action.type) {
     case "ready":
-      player.ready = action.value;
+      player!.ready = action.value;
       break;
     case "character":
-      player.character = action.value;
-      player.ready = false;
+      player!.character = action.value;
+      player!.ready = false;
       break;
     case "settings":
       room.settings = action.value;

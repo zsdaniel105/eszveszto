@@ -26,24 +26,34 @@ export function roomSoundEvents(
     game.phaseId !== before.phaseId ||
     game.sessionId !== before.sessionId
   ) {
+    const display = room.display?.id === playerId;
+    const controller = room.mode === "tv-party" && !display;
     let cue: SoundCue | null = null;
     switch (room.phase) {
       case "category-vote":
-        cue = "category";
+        cue = controller ? null : "category";
         break;
       case "sabotage-selection":
-        cue = "sabotage";
+        cue = controller ? null : "sabotage";
         break;
       case "sabotage-reveal":
-        cue = game.sabotage?.incoming.length ? "attack" : null;
+        cue = (
+          display ? game.sharedAttacks.length : game.sabotage?.incoming.length
+        )
+          ? "attack"
+          : null;
         break;
       case "question":
-        cue = "question";
+        cue = controller ? null : "question";
         break;
       case "results": {
         const result = game.result?.players.find(
           (p) => p.playerId === playerId,
         );
+        if (display) {
+          cue = "rank";
+          break;
+        }
         cue = result?.correct
           ? game.myFinale
             ? "finale-points"
@@ -55,15 +65,17 @@ export function roomSoundEvents(
       }
       case "leaderboard": {
         const p = game.ranking.find((p) => p.id === playerId);
-        cue = p && p.rank < p.previousRank ? "rank" : null;
+        cue = display || (p && p.rank < p.previousRank) ? "rank" : null;
         break;
       }
       case "finale":
-        cue = "finale";
+        cue = controller ? null : "finale";
         break;
       case "final-results":
         cue =
-          game.ranking.find((p) => p.id === playerId)?.rank === 1
+          display ||
+          (!controller &&
+            game.ranking.find((p) => p.id === playerId)?.rank === 1)
             ? "winner"
             : null;
         break;

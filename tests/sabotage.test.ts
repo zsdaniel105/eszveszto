@@ -533,7 +533,7 @@ describe("persistence, departures, upgrade and complete loop", () => {
       delete (q as Partial<typeof q>).sabotage;
       (room as { schemaVersion: number }).schemaVersion = 2;
       expect(upgradeRoom(room)).toBe(true);
-      expect(room.schemaVersion).toBe(4);
+      expect(room.schemaVersion).toBe(5);
       expect(room.quiz!.sabotage).toBeNull();
       expect(room.phase).toBe(phase);
       expect(room.quiz!.phaseId).toBe(before.quiz!.phaseId);

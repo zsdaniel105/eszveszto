@@ -43,6 +43,7 @@ export function QuestionEffects({
   finale,
   online,
   onIceTap,
+  showQuestion = true,
 }: {
   question: PublicQuestion;
   effects: PlayerEffects | null;
@@ -56,6 +57,7 @@ export function QuestionEffects({
   finale: PublicFinale | null;
   online: boolean;
   onIceTap: () => Promise<void>;
+  showQuestion?: boolean;
 }) {
   const key = `eszveszto:clearing:${playerId}`;
   const [clearing, setClearing] = useState(() => readClearing(key, phaseId));
@@ -171,8 +173,8 @@ export function QuestionEffects({
                     : "Egy válasz, egy esély."}
       </div>
       <div className={`effect-arena ${view.frozen ? "is-frozen" : ""}`}>
-        <h1 className="question-prompt">{question.prompt}</h1>
-        {question.image && (
+        {showQuestion && <h1 className="question-prompt">{question.prompt}</h1>}
+        {showQuestion && question.image && (
           <img
             className="question-image"
             src={question.image.url}

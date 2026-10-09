@@ -1,9 +1,18 @@
 import { advanceQuiz } from "./quiz";
 import type { Env } from "./index";
 import { DurableObject } from "cloudflare:workers";
-import { DISCONNECT_GRACE_MS, type ServerMessage } from "../shared/game";
+import {
+  DISCONNECT_GRACE_MS,
+  type Identity,
+  type ServerMessage,
+} from "../shared/game";
 import {
   applyAction,
+  actor,
+  createDisplayRoom,
+  makeDisplay,
+  retainRoom,
+  validateRole,
   upgradeRoom,
   createRoom,
   expiry,
@@ -23,11 +32,29 @@ import {
 
 interface Attachment {
   playerId: string | null;
+  displayId?: string | null;
+  role?: Identity["role"] | null;
   openedAt: number;
   lastSeen: number;
   requests: number[];
 }
 const HEARTBEAT_TIMEOUT = 65_000;
+// Legacy hibernated attachments contain only playerId. New identities are
+// explicitly role-bound and can never be an arbitrary client-supplied ID.
+function identity(a: Attachment): Identity | null {
+  if (a.role === "display" && a.displayId && !a.playerId)
+    return { role: "display", id: a.displayId };
+  if (
+    (a.role === undefined || a.role === "player") &&
+    a.playerId &&
+    !a.displayId
+  )
+    return { role: "player", id: a.playerId };
+  return null;
+}
+function unauthenticated(a: Attachment): Attachment {
+  return { ...a, role: null, playerId: null, displayId: null };
+}
 export function errorResponse(error: unknown): Response {
   const e =
     error instanceof RoomError
@@ -66,6 +93,12 @@ export class Room extends DurableObject<Env> {
             changed = true;
           }
         }
+        const d = this.room.display;
+        if (d?.connected && !this.sockets(d.id).length) {
+          d.connected = false;
+          d.disconnectedAt = Date.now();
+          changed = true;
+        }
         if (changed) {
           this.room.revision++;
           await this.persist();
@@ -87,7 +120,8 @@ export class Room extends DurableObject<Env> {
         (ws) =>
           ws.readyState === WebSocket.OPEN &&
           (!playerId ||
-            (ws.deserializeAttachment() as Attachment).playerId === playerId),
+            identity(ws.deserializeAttachment() as Attachment)?.id ===
+              playerId),
       );
   }
   private broadcast() {
@@ -95,11 +129,14 @@ export class Room extends DurableObject<Env> {
 
     for (const ws of this.sockets()) {
       const a = ws.deserializeAttachment() as Attachment;
-      if (a.playerId)
+      const viewer = identity(a);
+      if (viewer && actor(this.room, viewer))
         this.send(ws, {
           type: "state",
-          room: publicRoom(this.room, a.playerId),
-          playerId: a.playerId,
+          room: publicRoom(this.room, viewer),
+          playerId: viewer.role === "player" ? viewer.id : "",
+          identityId: viewer.id,
+          role: viewer.role,
           serverTime: Date.now(),
         });
     }
@@ -119,10 +156,13 @@ export class Room extends DurableObject<Env> {
     for (const p of this.room.players)
       if (!p.connected && !p.graceExpired && p.disconnectedAt !== null)
         deadlines.push(p.disconnectedAt + DISCONNECT_GRACE_MS);
+    const d = this.room.display;
+    if (d && !d.connected && !d.graceExpired && d.disconnectedAt !== null)
+      deadlines.push(d.disconnectedAt + DISCONNECT_GRACE_MS);
     for (const ws of this.sockets()) {
       const a = ws.deserializeAttachment() as Attachment;
       deadlines.push(
-        a.playerId ? a.lastSeen + HEARTBEAT_TIMEOUT : a.openedAt + 10_000,
+        identity(a) ? a.lastSeen + HEARTBEAT_TIMEOUT : a.openedAt + 10_000,
       );
     }
     await this.ctx.storage.setAlarm(
@@ -135,17 +175,18 @@ export class Room extends DurableObject<Env> {
     for (const ws of this.sockets()) {
       const a = ws.deserializeAttachment() as Attachment;
       if (
-        (!a.playerId && now - a.openedAt >= 10_000) ||
-        (a.playerId && now - a.lastSeen >= HEARTBEAT_TIMEOUT)
+        (!identity(a) && now - a.openedAt >= 10_000) ||
+        (identity(a) && now - a.lastSeen >= HEARTBEAT_TIMEOUT)
       ) {
-        ws.serializeAttachment({ ...a, playerId: null });
+        ws.serializeAttachment(unauthenticated(a));
         ws.close(4001, "A kapcsolat időtúllépés miatt megszakadt.");
-        if (a.playerId) this.disconnect(a.playerId, now);
+        const viewer = identity(a);
+        if (viewer) this.disconnect(viewer, now);
       }
     }
     pruneDisconnected(this.room, now);
     advanceQuiz(this.room, now);
-    if (now >= expiry(this.room) || this.room.players.length === 0) {
+    if (now >= expiry(this.room) || !retainRoom(this.room)) {
       for (const ws of this.sockets()) ws.close(4004, "A szoba lejárt.");
       this.room = null;
       await this.ctx.storage.deleteAll();
@@ -157,11 +198,12 @@ export class Room extends DurableObject<Env> {
       this.broadcast();
     }
   }
-  private disconnect(id: string, now: number) {
-    const p = this.room?.players.find((p) => p.id === id);
-    if (p && p.connected && !this.sockets(id).length) {
+  private disconnect(viewer: Identity, now: number) {
+    const p = this.room && actor(this.room, viewer);
+    if (p && p.connected && !this.sockets(viewer.id).length) {
       p.connected = false;
-      p.ready = false;
+      if (viewer.role === "player")
+        this.room!.players.find((m) => m.id === viewer.id)!.ready = false;
       p.disconnectedAt = now;
       this.room!.revision++;
     }
@@ -183,29 +225,40 @@ export class Room extends DurableObject<Env> {
               "Új szobakód szükséges.",
               409,
             );
+          const role = validateRole(input.role);
           if (!this.room)
-            this.room = createRoom(
-              input.code as string,
-              makePlayer(
-                validateNickname(input.nickname),
-                validateCharacter(input.character),
-                hash,
-                now,
-              ),
-              now,
-            );
-          const player = this.room.players.find(
-            (p) => p.credentialHash === hash,
-          );
-          if (!player)
+            this.room =
+              role === "display"
+                ? createDisplayRoom(
+                    input.code as string,
+                    makeDisplay(hash, now),
+                    now,
+                  )
+                : createRoom(
+                    input.code as string,
+                    makePlayer(
+                      validateNickname(input.nickname),
+                      validateCharacter(input.character),
+                      hash,
+                      now,
+                    ),
+                    now,
+                  );
+          const member =
+            role === "display"
+              ? this.room.display
+              : this.room.players.find((p) => p.credentialHash === hash);
+          if (!member || member.credentialHash !== hash)
             throw new RoomError(
-              "SESSION_GONE",
-              "A korábbi belépés már lejárt. Hozz létre új szobát!",
+              "ROLE_CONFLICT",
+              "Ezzel a belépéssel másik szerepben jöttél létre. Térj vissza az eredeti szerephez!",
               401,
             );
           await this.persist();
           return Response.json(
-            { code: this.room.code, playerId: player.id },
+            role === "display"
+              ? { code: this.room.code, displayId: member.id, role }
+              : { code: this.room.code, playerId: member.id },
             { status: 201 },
           );
         }
@@ -231,6 +284,33 @@ export class Room extends DurableObject<Env> {
           const hash = await hashCredential(
             validateCredential(input.credential),
           );
+          const role = validateRole(input.role);
+          if (path === "/join" && role !== "player")
+            throw new RoomError(
+              "PLAYER_ONLY",
+              "A meghívóval játékosként csatlakozhatsz.",
+              403,
+            );
+          if (role === "display") {
+            const d = this.room.display;
+            if (path !== "/resume" || !d || d.credentialHash !== hash)
+              throw new RoomError(
+                "UNAUTHORIZED",
+                "A kijelző belépése nem érvényes.",
+                401,
+              );
+            return Response.json({
+              code: this.room.code,
+              displayId: d.id,
+              role,
+            });
+          }
+          if (this.room.display?.credentialHash === hash)
+            throw new RoomError(
+              "ROLE_CONFLICT",
+              "A kijelző belépése nem használható játékosként.",
+              403,
+            );
           const existing = this.room.players.find(
             (p) => p.credentialHash === hash,
           );
@@ -269,6 +349,8 @@ export class Room extends DurableObject<Env> {
           this.ctx.acceptWebSocket(pair[1]);
           pair[1].serializeAttachment({
             playerId: null,
+            displayId: null,
+            role: null,
             openedAt: now,
             lastSeen: now,
             requests: [],
@@ -314,7 +396,7 @@ export class Room extends DurableObject<Env> {
         a.lastSeen = now;
         ws.serializeAttachment(a);
         if (input.type === "authenticate") {
-          if (a.playerId)
+          if (identity(a))
             throw new RoomError(
               "INVALID_ACTION",
               "Már csatlakoztál a szobához.",
@@ -322,35 +404,48 @@ export class Room extends DurableObject<Env> {
           const hash = await hashCredential(
             validateCredential(input.credential),
           );
-          const player = this.room.players.find(
-            (p) => p.credentialHash === hash,
-          );
-          if (!player)
+          const role = validateRole(input.role);
+          const member =
+            role === "display"
+              ? this.room.display
+              : this.room.players.find((p) => p.credentialHash === hash);
+          if (!member || member.credentialHash !== hash)
             throw new RoomError(
               "UNAUTHORIZED",
-              "A belépésed lejárt. Csatlakozz újra a szobához!",
+              "A belépés nem érvényes ehhez a szerephez. Csatlakozz újra!",
               401,
             );
-          // One live connection per credential. A refresh replaces the previous tab safely.
-          for (const old of this.sockets(player.id))
+          const viewer: Identity = { role, id: member.id };
+          for (const old of this.sockets(member.id))
             if (old !== ws) {
-              const previous = old.deserializeAttachment() as Attachment;
-              old.serializeAttachment({ ...previous, playerId: null });
-              old.close(4002, "A játékot egy másik ablakban nyitottad meg.");
+              old.serializeAttachment(
+                unauthenticated(old.deserializeAttachment() as Attachment),
+              );
+              old.close(4002, "A szobát egy másik ablakban nyitottad meg.");
             }
-          a.playerId = player.id;
+          a.role = role;
+          a.playerId = role === "player" ? member.id : null;
+          a.displayId = role === "display" ? member.id : null;
           ws.serializeAttachment(a);
-          player.connected = true;
-          player.disconnectedAt = null;
-          player.graceExpired = false;
-          if (!this.room.hostId) this.room.hostId = player.id;
+          member.connected = true;
+          member.disconnectedAt = null;
+          member.graceExpired = false;
+          // Once a Display has forfeited authority it remains a viewer. Only
+          // an authenticated player can fill a vacant player-host role.
+          if (
+            !this.room.hostId &&
+            this.room.hostRole === "player" &&
+            viewer.role === "player"
+          )
+            this.room.hostId = member.id;
           this.room.revision++;
           this.room.lastActivityAt = now;
           await this.persist();
           this.broadcast();
           return;
         }
-        if (!a.playerId)
+        const viewer = identity(a);
+        if (!viewer)
           throw new RoomError(
             "UNAUTHORIZED",
             "Előbb csatlakozz a szobához!",
@@ -366,7 +461,7 @@ export class Room extends DurableObject<Env> {
         )
           throw new RoomError("INVALID_INPUT", "Hiányzó műveletazonosító.");
         requestId = input.requestId;
-        const player = this.room.players.find((p) => p.id === a.playerId);
+        const player = actor(this.room, viewer);
         if (!player)
           throw new RoomError(
             "UNAUTHORIZED",
@@ -378,13 +473,13 @@ export class Room extends DurableObject<Env> {
           return;
         }
         const action = parseAction(input);
-        applyAction(this.room, player.id, action, now);
+        applyAction(this.room, viewer, action, now);
         player.recentActions = [...player.recentActions.slice(-31), requestId];
         await this.persist();
         this.broadcast();
         this.send(ws, { type: "ack", requestId });
         if (action.type === "leave") {
-          ws.serializeAttachment({ ...a, playerId: null });
+          ws.serializeAttachment(unauthenticated(a));
           ws.close(1000, "Kiléptél a szobából.");
           await this.cleanup(now);
         }
@@ -418,8 +513,9 @@ export class Room extends DurableObject<Env> {
     }
     await this.ctx.blockConcurrencyWhile(async () => {
       const a = ws.deserializeAttachment() as Attachment;
-      ws.serializeAttachment({ ...a, playerId: null });
-      if (a.playerId) this.disconnect(a.playerId, Date.now());
+      ws.serializeAttachment(unauthenticated(a));
+      const viewer = identity(a);
+      if (viewer) this.disconnect(viewer, Date.now());
       await this.cleanup(Date.now());
       await this.persist();
       this.broadcast();

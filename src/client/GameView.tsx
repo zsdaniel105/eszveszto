@@ -84,6 +84,24 @@ export function GameView({
 }) {
   useGameViewport();
   const game = room.game!;
+  const controller = room.mode === "tv-party";
+  const [showQuestion, setShowQuestion] = useState(() => {
+    try {
+      return localStorage.getItem("eszveszto:controller-question") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const displayUnavailable = controller && !room.display?.connected;
+  function toggleQuestion() {
+    const next = !showQuestion;
+    setShowQuestion(next);
+    try {
+      localStorage.setItem("eszveszto:controller-question", String(next));
+    } catch {
+      /* Individual optional preference. */
+    }
+  }
   useEffect(() => {
     if (room.phase === "question") return;
     try {
@@ -115,7 +133,9 @@ export function GameView({
   const q = game.question;
   const winners = game.ranking.filter((p) => p.rank === 1);
   return (
-    <main className={`game-layout phase-${room.phase}`}>
+    <main
+      className={`game-layout phase-${room.phase} ${controller ? "controller-mode" : ""}`}
+    >
       <div className="game-status">
         <span className="step-chip">
           {room.phase === "final-results"
@@ -245,9 +265,28 @@ export function GameView({
               </p>
             )}
             <AttackSummary game={game} />
+            {controller && (
+              <div className="controller-controls">
+                <strong>{me?.score ?? 0} pontod van</strong>
+                <button
+                  className="text-button"
+                  aria-pressed={showQuestion}
+                  onClick={toggleQuestion}
+                >
+                  {showQuestion ? "Kérdés elrejtése" : "Kérdés mutatása"}
+                </button>
+              </div>
+            )}
+            {displayUnavailable && (
+              <p className="controller-fallback" role="status">
+                A közös kijelző nincs kapcsolatban. A kérdést most a telefonodon
+                is látod.
+              </p>
+            )}
             <QuestionEffects
               key={game.phaseId}
               question={q}
+              showQuestion={!controller || showQuestion || displayUnavailable}
               effects={game.sabotage?.effects ?? null}
               now={now + clockOffset}
               phaseId={game.phaseId}
@@ -277,13 +316,15 @@ export function GameView({
                       : "Döntő: próbálkozhatsz újra. Hibánként −30 alappont, a végén dupla pont!"
                     : "Egy válasz, egy esély. Válassz, amíg tart az idő!"}
             </p>
-            <div className="question-bottom">
-              <span>
-                {game.answeredPlayerIds.length}/
-                {game.ranking.filter((p) => !p.left).length} válaszolt
-              </span>
-              <strong>{me?.score ?? 0} pontod van</strong>
-            </div>
+            {!controller && (
+              <div className="question-bottom">
+                <span>
+                  {game.answeredPlayerIds.length}/
+                  {game.ranking.filter((p) => !p.left).length} válaszolt
+                </span>
+                <strong>{me?.score ?? 0} pontod van</strong>
+              </div>
+            )}
           </>
         )}
         {room.phase === "results" && q && game.result && (
@@ -351,7 +392,11 @@ export function GameView({
               {game.round}. kérdés után · Azonos pontszám, közös helyezés.
             </p>
             <Ranks
-              players={game.ranking}
+              players={
+                controller
+                  ? game.ranking.filter((p) => p.id === playerId)
+                  : game.ranking
+              }
               me={playerId}
               total={game.totalQuestions}
             />
@@ -365,7 +410,11 @@ export function GameView({
         {room.phase === "finale" && (
           <div className="finale-announcement">
             <span aria-hidden="true">⚡</span>
-            <h1>🔥 DÖNTŐ – TÖBB ESÉLY, KEVESEBB PONT!</h1>
+            <h1>
+              {controller
+                ? "🔥 Döntő – dupla pont!"
+                : "🔥 DÖNTŐ – TÖBB ESÉLY, KEVESEBB PONT!"}
+            </h1>
             <p>
               A hibás válasz kiesik, és újra próbálkozhatsz. Hibánként{" "}
               <strong>−30 alappont.</strong>
@@ -386,7 +435,11 @@ export function GameView({
               <p>{winners.map((p) => p.nickname).join(" és ")}</p>
             </div>
             <Ranks
-              players={game.ranking}
+              players={
+                controller
+                  ? game.ranking.filter((p) => p.id === playerId)
+                  : game.ranking
+              }
               me={playerId}
               total={game.totalQuestions}
               final
@@ -412,7 +465,7 @@ export function GameView({
                 )}
               </div>
             )}
-            {room.hostId === playerId ? (
+            {room.hostRole === "player" && room.hostId === playerId ? (
               <button
                 className="primary wide"
                 disabled={busy || !online}

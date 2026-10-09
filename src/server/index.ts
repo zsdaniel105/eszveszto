@@ -6,6 +6,7 @@ import {
   validateCharacter,
   validateCredential,
   validateNickname,
+  validateRole,
 } from "./model";
 import { errorResponse } from "./room";
 export { Room } from "./room";
@@ -77,7 +78,7 @@ export default {
           return await stub.fetch(
             new Request(new URL("/socket", request.url), request),
           );
-        const input = await readInput(request);
+        const input = await readInput(request, match[2] as "join" | "resume");
         return await stub.fetch(
           new Request(new URL(`/${match[2]}`, request.url), {
             method: "POST",
@@ -85,7 +86,7 @@ export default {
           }),
         );
       }
-      const input = await readInput(request);
+      const input = await readInput(request, "create");
       // Stable routing makes retries idempotent without a centralized room directory.
       for (let attempt = 0; attempt < 5; attempt++) {
         const hash = await hashCredential(`${input.credential}:${attempt}`);
@@ -116,7 +117,10 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>;
-async function readInput(request: Request) {
+async function readInput(
+  request: Request,
+  purpose: "create" | "join" | "resume",
+) {
   if (!request.headers.get("Content-Type")?.startsWith("application/json"))
     throw new RoomError("INVALID_INPUT", "JSON-kérés szükséges.", 415);
   if (Number(request.headers.get("Content-Length")) > 4096)
@@ -148,9 +152,21 @@ async function readInput(request: Request) {
   } catch {
     throw new RoomError("INVALID_INPUT", "Hibás kérés. Próbáld újra!");
   }
+  const role = validateRole(input.role);
+  if (purpose === "join" && role !== "player")
+    throw new RoomError(
+      "PLAYER_ONLY",
+      "A meghívóval játékosként csatlakozhatsz.",
+      403,
+    );
   return {
-    nickname: validateNickname(input.nickname),
-    character: validateCharacter(input.character),
+    role,
     credential: validateCredential(input.credential),
+    ...(role === "player" && purpose !== "resume"
+      ? {
+          nickname: validateNickname(input.nickname),
+          character: validateCharacter(input.character),
+        }
+      : {}),
   };
 }
