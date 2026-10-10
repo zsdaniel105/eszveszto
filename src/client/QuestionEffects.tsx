@@ -225,9 +225,15 @@ export function QuestionEffects({
                   {question.options[index]}
                 </strong>
                 {finale?.eliminatedOptions.includes(index) && (
-                  <span aria-hidden="true">✕</span>
+                  <span className="answer-marker" aria-hidden="true">
+                    ✕
+                  </span>
                 )}
-                {myAnswer === index && <span aria-hidden="true">✓</span>}
+                {myAnswer === index && (
+                  <span className="answer-marker" aria-hidden="true">
+                    ✓
+                  </span>
+                )}
               </button>
             ))}
           </div>

@@ -152,6 +152,14 @@ async function correct(page: Page, value: string) {
   await expect(button).toBeEnabled();
   await button.click();
 }
+async function answerBoxes(page: Page) {
+  return page.locator(".answer-card").evaluateAll((nodes) =>
+    nodes.map((n) => {
+      const b = n.getBoundingClientRect();
+      return { x: b.x, y: b.y, height: b.height, width: b.width };
+    }),
+  );
+}
 
 test("TV Party: one authenticated Display and two phones play a full match with real QR, personal effects, finale penalties and rematch", async ({
   browser,
@@ -232,7 +240,9 @@ test("TV Party: one authenticated Display and two phones play a full match with 
       const item = QUESTIONS.find((item) => item.id === q.id)!;
       if (item.type !== "text") throw Error("Expected published text question");
       const answer = item.options[item.correctIndex],
-        wrong = q.options.find((o) => o !== answer)!;
+        wrong = q.options
+          .filter((o) => o !== answer)
+          .sort((a, b) => b.length - a.length)[0];
       await expect(display.locator(".display-question h1")).toHaveText(
         q.prompt,
       );
@@ -332,14 +342,31 @@ test("TV Party: one authenticated Display and two phones play a full match with 
         expect(snapshots.display!.game!.deadline).toBe(deadline);
         expect(snapshots.display!.players).toHaveLength(2);
       }
+      if (round >= 5) {
+        await one.locator(".game-card").evaluate(async (node) => {
+          await Promise.all(node.getAnimations().map((a) => a.finished));
+        });
+        await one
+          .locator(".answer-card")
+          .filter({ has: one.getByText(answer, { exact: true }) })
+          .scrollIntoViewIfNeeded();
+      }
+      const firstBoxes = round >= 5 ? await answerBoxes(one) : null;
       await correct(one, answer);
       if (round >= 5) {
-        const boxes = await two.locator(".answer-card").evaluateAll((nodes) =>
-          nodes.map((n) => {
-            const b = n.getBoundingClientRect();
-            return { x: b.x, y: b.y, height: b.height, width: b.width };
-          }),
-        );
+        await expect(one.locator(".answer-card.selected")).toHaveCount(1);
+        await one.locator(".answer-card.selected").evaluate(async (node) => {
+          await Promise.all(node.getAnimations().map((a) => a.finished));
+        });
+        expect(await answerBoxes(one)).toEqual(firstBoxes);
+        // Short screens intentionally scroll the inner panel to reach an
+        // answer. Measure after making this target visible, so the strict
+        // assertion detects guess-driven movement rather than that scroll.
+        await two
+          .locator(".answer-card")
+          .filter({ has: two.getByText(wrong, { exact: true }) })
+          .scrollIntoViewIfNeeded();
+        const boxes = await answerBoxes(two);
         await correct(two, wrong);
         await expect(two.locator(".answer-card.eliminated")).toHaveCount(1);
         expect(snapshots.one!.game!.myFinale!.wrongAttempts).toBe(0);
@@ -350,14 +377,7 @@ test("TV Party: one authenticated Display and two phones play a full match with 
         expect(JSON.stringify(snapshots.display!.game)).not.toContain(
           "correctIndex",
         );
-        expect(
-          await two.locator(".answer-card").evaluateAll((nodes) =>
-            nodes.map((n) => {
-              const b = n.getBoundingClientRect();
-              return { x: b.x, y: b.y, height: b.height, width: b.width };
-            }),
-          ),
-        ).toEqual(boxes);
+        expect(await answerBoxes(two)).toEqual(boxes);
         if (round === 5) {
           const history = snapshots.two!.game!.myFinale;
           await two.reload();
