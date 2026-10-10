@@ -1,4 +1,4 @@
-import { isAbilityId, SABOTAGE_BALANCE } from "../shared/sabotage";
+import { isAbilityId, SABOTAGE_BALANCE, LEGACY_FREEZE_MS } from "../shared/sabotage";
 import {
   advanceQuiz,
   initializeQuiz,
@@ -224,7 +224,7 @@ export function upgradeRoom(room: StoredRoom): boolean {
           (e.counts.roulette ? 0 : SABOTAGE_BALANCE.shuffleSettleMs)
         : e.freezeUntil -
           (e.counts.freeze
-            ? SABOTAGE_BALANCE.freezeMs[Math.min(4, e.counts.freeze) - 1]
+            ? LEGACY_FREEZE_MS[Math.min(4, e.counts.freeze) - 1]
             : 0);
     }
   }

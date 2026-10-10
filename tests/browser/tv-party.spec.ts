@@ -268,25 +268,21 @@ test("TV Party: one authenticated Display and two phones play a full match with 
         await Promise.all([
           (async () => {
             const ice = two.locator(".ice-barrier");
-            for (let n = 0; n < 3; n++) {
+            for (let n = 0; n < 6; n++) {
               await ice.click();
-              if (n < 2) await two.waitForTimeout(110);
+              if (n < 5) await two.waitForTimeout(110);
             }
             await expect(ice).toHaveClass(/ice-shattered/);
           })(),
           (async () => {
             const patches = one.locator(".wipe-patch:not(.is-clean)");
-            await expect(patches).toHaveCount(2);
-            const canvas = patches.first().locator("canvas"),
-              before = await alphaPixels(canvas);
-            await canvas.tap();
+            await expect(patches).toHaveCount(1);
+            const canvas = patches.locator("canvas"), before = await alphaPixels(canvas);
+            await patches.locator(".wipe-hit").first().tap();
             expect(await alphaPixels(canvas)).toBe(before);
             await wipe(one, canvas, 0.35, true);
             expect(await alphaPixels(canvas)).toBeLessThan(before);
             await wipe(one, canvas, 0.65);
-            await expect(patches).toHaveCount(1);
-            await patches.first().getByRole("button").focus();
-            for (let n = 0; n < 4; n++) await one.keyboard.press("Enter");
             await expect(patches).toHaveCount(0);
             await expect(
               one.locator(".answer-card[aria-pressed=true]"),
@@ -676,7 +672,7 @@ test("eight phone seats remain usable with a separate Display and seven real att
     expect(new Set(victim.incoming.map((a) => a.attackerId)).size).toBe(7);
     expect(
       victim.effects!.answerUnlockAt - screen.startedAt,
-    ).toBeLessThanOrEqual(2000);
+    ).toBeLessThanOrEqual(2500);
     expect(snapshots[0]!.game!.sabotage!.effects).toBeNull();
     await expect(phones[0].locator(".attack-summary")).toContainText("7");
     const answer = item.options[item.correctIndex];

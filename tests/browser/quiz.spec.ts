@@ -238,12 +238,12 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
             ability = id as AbilityId;
           if (ability === "freeze") {
             await expect(page.locator(".effect-status")).toContainText(
-              "Fagyasztás",
+              "Törd össze a jeget",
             );
             await expect(page.locator(".answer-card").first()).toBeDisabled();
-            for (let n = 0; n < 3; n++) {
+            for (let n = 0; n < 6; n++) {
               await page.locator(".ice-barrier").click();
-              if (n < 2) await page.waitForTimeout(110);
+              if (n < 5) await page.waitForTimeout(110);
             }
             await expect
               .poll(
@@ -251,7 +251,7 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
                   (page === host ? snapshots.host : snapshots.guest)!.game!
                     .myIce?.acceptedTaps,
               )
-              .toBe(3);
+              .toBe(6);
             await expect(page.locator(".ice-barrier")).toHaveClass(
               /ice-shattered/,
             );
@@ -286,57 +286,41 @@ test("two mobile browsers play six real questions, reconnect, finish and start a
           }
           if (ability === "slime") {
             const patches = page.locator(".wipe-patch:not(.is-clean)");
-            const count = await patches.count();
-            expect(count).toBe(2);
-            const canvas = patches.first().locator("canvas");
+            await expect(patches).toHaveCount(1);
+            const canvas = patches.locator("canvas");
             const before = await alphaPixels(canvas);
-            await canvas.tap();
+            await patches.locator(".wipe-hit").first().tap();
             expect(await alphaPixels(canvas)).toBe(before);
             await wipe(page, canvas, 0.35, true);
             const partial = await alphaPixels(canvas);
             expect(partial).toBeLessThan(before);
-            await expect(patches).toHaveCount(2);
+            await expect(patches).toHaveCount(1);
             await page.reload();
-            await expect(patches).toHaveCount(2);
-            expect(await alphaPixels(patches.first().locator("canvas"))).toBe(
-              partial,
-            );
-            await wipe(page, patches.first().locator("canvas"), 0.65);
             await expect(patches).toHaveCount(1);
-            const fallback = patches.first().getByRole("button");
-            await fallback.focus();
-            for (let n = 0; n < 3; n++) await page.keyboard.press("Enter");
-            await expect(patches).toHaveCount(1);
-            await page.keyboard.press("Enter");
+            expect(await alphaPixels(patches.locator("canvas"))).toBe(partial);
+            await wipe(page, patches.locator("canvas"), 0.65);
             await expect(patches).toHaveCount(0);
             expect(await page.evaluate(() => window.scrollY)).toBe(0);
-            await expect(
-              page.locator(".answer-card[aria-pressed=true]"),
-            ).toHaveCount(0);
+            await expect(page.locator(".answer-card[aria-pressed=true]")).toHaveCount(0);
           }
           if (ability === "ink") {
-            await expect(page.locator(".ink-patch")).toHaveCount(2);
-            await page.locator(".ink-patch").first().focus();
+            const ink = page.locator(".ink-patch");
+            await expect(ink).toHaveCount(3);
+            await ink.first().click();
+            await expect(ink).toHaveCount(3); // A quick tap cannot erase ink.
+            await ink.first().focus();
             await page.keyboard.press("Enter");
-            await expect(page.locator(".ink-patch.dispersing")).toHaveCount(1);
-            await page.keyboard.press("Enter");
-            await expect(page.locator(".ink-patch")).toHaveCount(1);
-            await page.locator(".ink-patch").first().scrollIntoViewIfNeeded();
-            const box = await page.locator(".ink-patch").first().boundingBox();
-            await page.mouse.move(
-              box!.x + box!.width / 2,
-              box!.y + box!.height / 2,
-            );
-            await page.mouse.down();
-            await page.mouse.move(
-              box!.x + box!.width / 2 + 20,
-              box!.y + box!.height / 2,
-            );
-            await page.mouse.up();
-            await expect(page.locator(".ink-patch")).toHaveCount(0);
-            await expect(
-              page.locator(".answer-card[aria-pressed=true]"),
-            ).toHaveCount(0);
+            await expect(ink).toHaveCount(2);
+            for (let n = 0; n < 2; n++) {
+              const box = (await ink.first().boundingBox())!;
+              await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+              await page.mouse.down();
+              await expect(ink.first()).toHaveClass(/is-holding/);
+              await page.waitForTimeout(400);
+              await page.mouse.up();
+              await expect(ink).toHaveCount(1 - n);
+            }
+            await expect(page.locator(".answer-card[aria-pressed=true]")).toHaveCount(0);
           }
           await expect(page.locator(".answer-card").first()).toBeEnabled({
             timeout: 3500,

@@ -61,8 +61,9 @@ export function drawSlime(
   width: number,
   height: number,
   trails: WipePoint[][],
+  layer = false,
 ): number {
-  ctx.clearRect(0, 0, width, height);
+  if (!layer) ctx.clearRect(0, 0, width, height);
   ctx.globalCompositeOperation = "source-over";
   ctx.save();
   ctx.scale(width / 100, height / 100);
@@ -70,8 +71,8 @@ export function drawSlime(
     "M9 40C-1 13 27 0 42 15C59-3 86 11 84 31C109 36 97 61 86 67C90 96 64 103 48 85C25 108 7 83 17 66C-3 65-1 44 9 40Z",
   );
   const green = ctx.createLinearGradient(0, 0, 75, 100);
-  green.addColorStop(0, "rgba(162,233,33,.84)");
-  green.addColorStop(1, "rgba(54,132,18,.91)");
+  green.addColorStop(0, layer ? "rgba(162,233,33,.98)" : "rgba(162,233,33,.84)");
+  green.addColorStop(1, layer ? "rgba(54,132,18,.99)" : "rgba(54,132,18,.91)");
   ctx.fillStyle = green;
   ctx.fill(blob);
   ctx.fillStyle = "rgba(237,255,186,.5)";
@@ -89,7 +90,7 @@ export function drawSlime(
     ctx.fill();
   }
   ctx.restore();
-  const initial = alphaPixels(ctx, width, height);
+  const initial = layer ? 0 : alphaPixels(ctx, width, height);
   for (const trail of trails)
     for (let i = 1; i < trail.length; i++)
       eraseSlime(ctx, width, height, trail[i - 1], trail[i]);
@@ -139,9 +140,11 @@ export function clearedFraction(
 export function slimeComplete(
   progress: SlimeProgress,
   erased: number,
+  steps?: number,
 ): boolean {
   return (
-    progress.keyboardSteps >= 4 ||
-    (progress.strokes >= 2 && progress.distance >= 1.25 && erased >= 0.45)
+    progress.keyboardSteps >= (steps ?? 4) ||
+    (progress.strokes >= (steps === 4 ? 3 : 2) &&
+      progress.distance >= (steps === 4 ? 1.8 : 1.25) && erased >= 0.45)
   );
 }

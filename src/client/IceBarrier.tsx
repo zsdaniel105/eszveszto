@@ -42,6 +42,7 @@ export function IceBarrier({
       <button
         className={`ice-barrier ${!active ? (ice.broken ? "ice-shattered" : "ice-melted") : ""}`}
         disabled={!active || !online}
+        aria-busy={pending.length > 0}
         onClick={tap}
         aria-label={`Törd össze a jeget! Jég feltörése: ${ice.acceptedTaps}/${ice.requiredTaps}`}
       >
@@ -50,7 +51,7 @@ export function IceBarrier({
           preserveAspectRatio="none"
           aria-hidden="true"
         >
-          {Array.from({ length: Math.min(5, cracks) }, (_, n) => (
+          {Array.from({ length: Math.min(7, cracks) }, (_, n) => (
             <path
               key={n}
               className="ice-crack"
@@ -61,14 +62,16 @@ export function IceBarrier({
                   "M300 24 234 48 216 83 170 70 145 107 77 130 55 180",
                   "M25 0 70 38 58 74 89 102 74 160 99 180",
                   "M215 180 231 149 213 121 249 94 240 52 277 0",
+                  "M115 0 106 27 130 53 91 67 108 107 52 118 0 145",
+                  "M300 163 259 141 272 117 207 93 190 42 163 28 170 0",
                 ][n]
               }
             />
           ))}
         </svg>
-        <span>❄️ Törd össze a jeget!</span>
-        <small role="status">
-          Jég feltörése: {ice.acceptedTaps}/{ice.requiredTaps}
+        <span className="sr-only">❄️ Törd össze a jeget!</span>
+        <small className="sr-only">
+          Jég: {ice.acceptedTaps}/{ice.requiredTaps}
           {pending.length ? " · Küldés…" : ""}
         </small>
       </button>

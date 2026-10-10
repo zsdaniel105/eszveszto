@@ -4,6 +4,7 @@
 import worker, { type Env } from "../../src/server/index";
 import { Room as ProductionRoom } from "../../src/server/room";
 import { publicRoom, type StoredRoom } from "../../src/server/model";
+import { ABILITIES, isAbilityId } from "../../src/shared/sabotage";
 export class Room extends ProductionRoom {
   constructor(
     private testContext: DurableObjectState,
@@ -35,6 +36,13 @@ export class Room extends ProductionRoom {
         "shuffle",
         "upside-down",
       ];
+      const input = await request.json().catch(() => null) as { abilities?: unknown[] } | null;
+      if (Array.isArray(input?.abilities) && input.abilities.length <= players.length) {
+        for (const [i, ability] of input.abilities.entries()) {
+          if (!isAbilityId(ability)) return new Response("Invalid fixture ability", { status: 400 });
+          room.quiz!.sabotage!.offers[players[i].id] = [ability, ...ABILITIES.map((a) => a.id).filter((id) => id !== ability).slice(0, 2)];
+        }
+      }
       room.revision++;
       // Test-only access to the restored cache keeps storage and the actual
       // production action implementation in agreement; no behavior is mocked.
@@ -73,7 +81,7 @@ export default {
     );
     if (match && request.method === "POST")
       return env.ROOMS.get(env.ROOMS.idFromName(match[1])).fetch(
-        "https://test-only/fixture-offers",
+        new Request("https://test-only/fixture-offers", { method: "POST", body: await request.text() }),
       );
     return worker.fetch(request, env);
   },

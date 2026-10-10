@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { alphaPixels, wipe } from "./interactions";
+import { alphaPixels, textMaskCoverage, wipe } from "./interactions";
 
 test("real touch cancellation and mouse trails survive resizing and refresh, then auto-fade without answering", async ({
   browser,
@@ -18,17 +18,6 @@ test("real touch cancellation and mouse trails survive resizing and refresh, the
   });
   const host = await hostContext.newPage(),
     guest = await guestContext.newPage();
-  let identity: { playerId: string; phaseId: string } | null = null;
-  host.on("websocket", (ws) =>
-    ws.on("framereceived", (event) => {
-      const message = JSON.parse(event.payload.toString());
-      if (message.type === "state" && message.room.game)
-        identity = {
-          playerId: message.playerId,
-          phaseId: message.room.game.phaseId,
-        };
-    }),
-  );
   try {
     await host.goto(baseURL!);
     await host.getByRole("button", { name: "Játék létrehozása" }).click();
@@ -73,12 +62,12 @@ test("real touch cancellation and mouse trails survive resizing and refresh, the
       (async () => {
         const ice = guest.locator(".ice-barrier");
         await ice.focus();
-        for (let n = 0; n < 3; n++) {
+        for (let n = 0; n < 6; n++) {
           await guest.keyboard.press("Enter");
-          if (n < 2) await guest.waitForTimeout(110);
+          if (n < 5) await guest.waitForTimeout(110);
         }
         await expect(ice).toHaveClass(/ice-shattered/);
-        await expect(ice).toHaveAttribute("aria-label", /3\/3/);
+        await expect(ice).toHaveAttribute("aria-label", /6\/6/);
         await expect(guest.locator(".answer-card").first()).not.toHaveAttribute(
           "aria-disabled",
           "true",
@@ -86,9 +75,14 @@ test("real touch cancellation and mouse trails survive resizing and refresh, the
       })(),
       (async () => {
         const canvases = host.locator(".wipe-patch canvas");
-        await expect(canvases).toHaveCount(2);
+        await expect(canvases).toHaveCount(1);
         const first = canvases.first(),
           before = await alphaPixels(first);
+        for (const covered of await textMaskCoverage(first)) {
+          expect(covered).toBeGreaterThan(0.4);
+          expect(covered).toBeLessThan(0.85);
+        }
+        await host.screenshot({ path: testInfo.outputPath("slime-impact.png") });
         const panel = await host
           .locator(".game-card")
           .evaluate((el) => el.scrollTop);
@@ -107,18 +101,8 @@ test("real touch cancellation and mouse trails survive resizing and refresh, the
         await expect(
           host.locator(".answer-card[aria-pressed=true]"),
         ).toHaveCount(0);
-        // Preserve visual progress saved by the previous tap-to-clear client.
-        await host.evaluate(
-          ({ playerId, phaseId }) =>
-            localStorage.setItem(
-              `eszveszto:clearing:${playerId}`,
-              JSON.stringify({ phaseId, slime: [1], ink: [], inkHits: {} }),
-            ),
-          identity!,
-        );
         await host.reload();
-        await expect(canvases).toHaveCount(2);
-        await expect(host.locator(".wipe-patch.is-clean")).toHaveCount(1);
+        await expect(canvases).toHaveCount(1);
         expect(await alphaPixels(first)).toBe(partial);
         for (const width of [320, 375, 390, 430, 1280]) {
           await host.setViewportSize({ width, height: 740 });
@@ -141,7 +125,7 @@ test("real touch cancellation and mouse trails survive resizing and refresh, the
                 (node as HTMLCanvasElement).height,
               ),
             ),
-          ).toBeLessThanOrEqual(512);
+          ).toBeLessThanOrEqual(768);
           await host.screenshot({
             path: testInfo.outputPath(`slime-${width}.png`),
           });
@@ -149,7 +133,7 @@ test("real touch cancellation and mouse trails survive resizing and refresh, the
         await host.setViewportSize({ width: 390, height: 740 });
         await wipe(host, first, 0.65);
         await expect(host.locator(".wipe-patch:not(.is-clean)")).toHaveCount(1); // cancel + one finished stroke is insufficient
-        const held = (await first.boundingBox())!;
+        const held = (await host.locator(".wipe-hit").first().boundingBox())!;
         await host.mouse.move(
           held.x + held.width / 2,
           held.y + held.height / 2,

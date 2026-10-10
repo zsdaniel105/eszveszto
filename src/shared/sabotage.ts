@@ -5,14 +5,14 @@ export const ABILITIES = [
     name: "Takonybomba",
     icon: "🟢",
     color: "#d2eac5",
-    description: "Ragadós takony! Több söpréssel törölhető le.",
+    description: "Takony a válaszokon! Töröld le gyors ujjmozdulatokkal!",
   },
   {
     id: "freeze",
     name: "Fagyasztás",
     icon: "❄️",
     color: "#c6e8f3",
-    description: "Rövid jégzár: több koppintással hamarabb feltörhető.",
+    description: "Látod a válaszokat, de befagytak! Törd fel 6–7 koppintással!",
   },
   {
     id: "shuffle",
@@ -33,7 +33,7 @@ export const ABILITIES = [
     name: "Tintapaca",
     icon: "🖋️",
     color: "#ded9ec",
-    description: "Tinta fröccsen: söpréssel vagy két koppintással törölhető.",
+    description: "Tinta takarja a szavakat! Tartsd lenyomva a foltokat!",
   },
   {
     id: "roulette",
@@ -51,9 +51,9 @@ export const isAbilityId = (value: unknown): value is AbilityId =>
 export const SABOTAGE_BALANCE = {
   selectionMs: 10_000,
   revealMs: 1500,
-  maxLockMs: 2000,
+  maxLockMs: 2500,
   iceTapSpacingMs: 80,
-  freezeMs: [1200, 1600, 1800, 2000],
+  freezeMs: [2200, 2500],
   shuffleAtMs: [650, 1250],
   shuffleSettleMs: 200,
   rouletteMs: 2000,
@@ -61,12 +61,19 @@ export const SABOTAGE_BALANCE = {
   upsideMs: 3000,
   upsideExtraMs: 500,
   maxUpsideMs: 4000,
+  // Legacy patch layout is retained for already-resolved v1 effects only.
   overlayMs: 4500,
   maxPatchesPerType: 3,
   patchWidthPercent: 20,
   slimeHeightPercent: 18,
   inkHeightPercent: 16,
+  slimeMs: 3000,
+  inkMs: 4000,
+  inkHoldMs: 350,
+  maxInkGroups: 4,
+  maxObstructionFraction: 0.25,
 } as const;
+export const LEGACY_FREEZE_MS = [1200, 1600, 1800, 2000] as const;
 export type SabotageChoice =
   | { type: "attack"; abilityId: AbilityId; targetId: string }
   | { type: "skip"; reason: "explicit" | "timeout" };
@@ -81,6 +88,12 @@ export interface PresentationFrame {
   order: number[];
 }
 export interface PlayerEffects {
+  // Optional additive fields: already-resolved v1 effects retain their rules.
+  overlayVersion?: 2;
+  slimeUntil?: number;
+  inkUntil?: number;
+  slimeLobes?: number;
+  slimeSteps?: number;
   counts: Record<AbilityId, number>;
   freezeUntil: number;
   answerUnlockAt: number;

@@ -2096,23 +2096,21 @@ footer span {
   height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
   gap: 8px;
   border: 2px solid #70bbd6;
   border-radius: 16px;
   color: #124a62;
-  background: linear-gradient(125deg, #d9f7ffe8, #a5dcebed, #e4faffdf);
+  background: linear-gradient(125deg, #d9f7ff18, #a5dceb25, #e4faff12);
+  box-shadow: inset 0 0 12px 2px #bdeeff90;
   touch-action: manipulation;
   padding: 12px;
   overflow: hidden;
 }
-.ice-barrier span,
-.ice-barrier small {
-  position: relative;
-  background: #effaffeb;
-  border-radius: 8px;
-  padding: 5px;
+.ice-barrier .sr-only {
+  position: absolute;
+  background: none;
 }
 .ice-barrier svg {
   position: absolute;
@@ -3303,3 +3301,33 @@ body[data-gameplay] .game-card {
     transition: none !important;
   }
 }
+
+/* Only the player gameplay view owns gestures. Ancestors exclude pinch and
+   double-tap zoom while the bounded panel still permits vertical panning. */
+body[data-player-gameplay] .app { touch-action: pan-y; }
+body[data-player-gameplay] .game-card { touch-action: pan-y; }
+body[data-player-gameplay] .game-layout button { touch-action: pan-y; }
+body[data-player-gameplay] .ice-barrier,
+body[data-player-gameplay] .wipe-hit,
+body[data-player-gameplay] .hold-ink { touch-action: none; }
+.slime-surface { position: absolute; inset: 0; pointer-events: none; }
+.slime-surface canvas { pointer-events: none; }
+.wipe-hit { position: absolute; pointer-events: auto; touch-action: none; }
+.slime-surface.is-clean .wipe-hit { pointer-events: none; }
+.hold-ink { min-width: 0; min-height: 0; border: 0; border-radius: 0; }
+.hold-ink::before { content: ""; position: absolute; width: max(100%, 44px); height: max(100%, 44px); }
+.hold-ink svg { fill: #302039; filter: drop-shadow(1px 2px 1px #21152a70); }
+.ink-hold-ring { position: absolute; border: 2px solid #ffffff70; border-top-color: white; border-radius: 50%; width: 22px; height: 22px; opacity: 0; }
+.is-holding .ink-hold-ring { opacity: 1; animation: ink-absorb var(--hold-ms) linear forwards; }
+.is-holding svg { animation: ink-drain var(--hold-ms) linear forwards; }
+.is-absorbed { opacity: 0; }
+@keyframes ink-absorb { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@keyframes ink-drain { from { opacity: 1; } to { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .is-holding .ink-hold-ring { animation: none; border-color: white; }
+  .is-holding svg { animation: none; opacity: 0.6; }
+  .slime-surface, .hold-ink { animation: none; }
+}
+
+.wipe-hit::before { content: ""; position: absolute; width: max(100%, 44px); height: max(100%, 44px); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }

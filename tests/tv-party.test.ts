@@ -359,7 +359,7 @@ describe("Display-safe projection and the shared engine", () => {
             q.phaseStartedAt + 1,
           ),
         ).toThrow("fagyasztás");
-        for (let n = 0; n < 3; n++)
+        for (let n = 0; n < 6; n++)
           applyAction(
             room,
             target.id,
