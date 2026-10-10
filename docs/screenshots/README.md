@@ -41,3 +41,18 @@ A sikeres TV Party Playwright-forgatókönyvek valódi, független Chromium-klie
 | [Telefonos szabotázs](pr6-controller-sabotage.png) | 375×740, három saját ajánlat, közös tízmásodperces idő és kihagyás; célpont csak választás után jelenik meg. |
 
 A futás további 1366×768/1280×720 kijelző-kérdésképei, valamennyi kijelzőméret nyolcfős előszobája és 375/430 px controller-képei a teszt artifactjaiban szerepelnek. A képernyő mérete CSS-pixelben értendő. Fázisok alatt rögzített dokumentum, szükség esetén hozzáférhető belső panel. A telefonos fallback és egyéni kérdésmutatás valódi Display-kapcsolatvesztési/reconnect forgatókönyvben is ellenőrzött.
+
+# PR #8 – takony, olvasható jég és nyomva tartott tinta
+
+A sikeres Chromium-tesztek valódi többklienses, szerver által feloldott támadásainak megnézett képei. A nézet 390×740 CSS-pixel, DPR 2; nem mockup és nem fizikai telefonfelvétel. A vegyes Normál kvíz-forgatókönyvben három külön játékos takonnyal, tintával és jéggel támad ugyanarra a negyedik játékosra. A TV-felvételen külön hitelesített kijelző és két telefon játszik.
+
+| Kép | Ellenőrzött állapot |
+| --- | --- |
+| [Takonybecsapódás](pr8-slime-impact.png) | Egy közös, hatlebenyes maszk a tényleges válaszszövegeken; a teszt Canvas-pixelekkel méri a takarást és a söprés valódi törlését. |
+| [Olvasható jég](pr8-ice-readable.png) | Áttetsző réteg; minden válasz olvasható. Az instrukció és a szerveres koppintásszám a válaszokon kívül marad. |
+| [Jégrepedések](pr8-ice-cracks.png) | A ténylegesen elfogadott koppintások külön repedéslépéseket mutatnak; a hatodik érintés törheti fel ezt az egy támadásból eredő jeget. |
+| [Összevont takony és tinta](pr8-combined-obstruction.png) | A jég feltörése után a két maszk a közös takarási kereten belül, eltérő szövegrészleteken jelenik meg. |
+| [Tinta felszívása](pr8-ink-hold.png) | Valódi 350 ms-os hold közben megjelenő jelző; a többi folt megmarad, nincs globális válaszzár. |
+| [TV telefonos tinta](pr8-controller-ink.png) | Három részleges szövegfolt a nagy válaszvezérlőkön, kérdés alapértelmezésben csak a közös kijelzőn. |
+
+A futás 320/375/390/430 px, rövid/fekvő nézet, megnövelt betűméret, belső érintéses görgetés, frissítés, megszakított pointer és tényleges Chromium touchscreen/CDP double-tap/pinch gesztusokat is ellenőriz. WebKit letöltése a környezet HTTP 403 „Domain forbidden” korlátjába ütközött; Safari és fizikai Android/iOS/stylus/segítő technológia ellenőrzése külön feladat. Az OS hozzáférhetőségi zoompolitikájára ezek a képek nem adnak általános garanciát.

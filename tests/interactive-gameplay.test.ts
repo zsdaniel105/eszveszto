@@ -17,6 +17,7 @@ import {
   type AbilityId,
 } from "../src/shared/sabotage";
 import { emptySlime, slimeComplete } from "../src/client/slime";
+import { obstructionLayout, type TextRegion } from "../src/client/obstruction";
 
 function context(room: StoredRoom) {
   const q = room.quiz!;
@@ -66,11 +67,31 @@ function effect(room: StoredRoom, id: string, abilities: AbilityId[]) {
   return room.quiz!.sabotage!.effects[id];
 }
 describe("breakable authoritative ice", () => {
+  it.each([1, 2, 7])(
+    "auto-thaws %i stacked freezes only at the persisted deadline",
+    (count) => {
+      const { room, host, start, q } = fixture(false);
+      const e = effect(
+        room,
+        host.id,
+        Array.from({ length: count }, () => "freeze"),
+      );
+      const deadline = q.deadline;
+      expect(e.freezeUntil - start).toBe(count === 1 ? 2200 : 2500);
+      expect(() =>
+        answer(room, host.id, q.correctIndex, e.freezeUntil - 1),
+      ).toThrow("fagyasztás");
+      expect(() => ice(room, host.id, e.freezeUntil)).toThrow("nincs aktív");
+      answer(room, host.id, q.correctIndex, e.freezeUntil);
+      expect(q.answers[host.id].receivedAt).toBe(e.freezeUntil);
+      expect(q.deadline).toBe(deadline);
+    },
+  );
   it.each([
-    [1, 3],
-    [2, 4],
-    [3, 5],
-    [7, 5],
+    [1, 6],
+    [2, 7],
+    [3, 7],
+    [7, 7],
   ])(
     "resolves %i freezes into %i accepted taps and unlocks early",
     (count, required) => {
@@ -144,14 +165,14 @@ describe("breakable authoritative ice", () => {
         "ink",
       ]);
       const before = structuredClone(e);
-      for (let i = 0; i < 3; i++) ice(room, host.id, start + i * 100);
-      expect(() => answer(room, host.id, q.correctIndex, start + 201)).toThrow(
+      for (let i = 0; i < 6; i++) ice(room, host.id, start + i * 80);
+      expect(() => answer(room, host.id, q.correctIndex, start + 401)).toThrow(
         "rendeződnek",
       );
       expect(
         presentationAt(
           e,
-          start + 201,
+          start + 401,
           4,
           publicRoom(room, host.id).game!.myIce,
         ),
@@ -159,7 +180,7 @@ describe("breakable authoritative ice", () => {
       expect(e).toEqual(before);
       answer(room, host.id, q.correctIndex, e.motionUnlockAt);
       expect(q.answers[host.id]).toBeDefined();
-      expect(e.answerUnlockAt - start).toBeLessThanOrEqual(2000);
+      expect(e.answerUnlockAt - start).toBeLessThanOrEqual(2500);
     },
   );
   it("reconstructs partial progress, rejects after break and auto-thaws at the original deadline", () => {
@@ -169,11 +190,11 @@ describe("breakable authoritative ice", () => {
     const copy = structuredClone(room);
     expect(publicRoom(copy, host.id).game!.myIce!.acceptedTaps).toBe(1);
     ice(copy, host.id, start + 200);
-    ice(copy, host.id, start + 300);
-    expect(() => ice(copy, host.id, start + 400)).toThrow("nincs aktív");
+    for (let n = 3; n <= 6; n++) ice(copy, host.id, start + n * 100);
+    expect(() => ice(copy, host.id, start + 700)).toThrow("nincs aktív");
     expect(() => ice(room, host.id, e.freezeUntil)).toThrow("nincs aktív");
     answer(room, host.id, q.correctIndex, e.freezeUntil);
-    expect(q.answers[host.id].receivedAt).toBe(start + 1200);
+    expect(q.answers[host.id].receivedAt).toBe(start + 2200);
   });
 });
 describe("multi-guess finale scoring and privacy", () => {
@@ -346,7 +367,7 @@ describe("multi-guess finale scoring and privacy", () => {
       "upside-down",
     ]);
     const at = e.answerUnlockAt + 1;
-    expect(e.answerUnlockAt - q.phaseStartedAt).toBe(2000);
+    expect(e.answerUnlockAt - q.phaseStartedAt).toBe(2500);
     answer(room, host.id, (q.correctIndex + 1) % 4, at);
     answer(room, host.id, q.correctIndex, at + 100);
     answer(room, guest.id, q.correctIndex, at + 200);
@@ -404,6 +425,119 @@ describe("multi-guess finale scoring and privacy", () => {
   );
 });
 describe("additive legacy upgrade and bounded cleaning rules", () => {
+  it("reconstructs missing legacy ice fields using the old balance table, not new defaults", () => {
+    const { room, host, start, q } = fixture(false);
+    const e = effect(room, host.id, ["freeze", "freeze"]);
+    delete e.overlayVersion;
+    delete (e as Partial<typeof e>).iceRequiredTaps;
+    delete (e as Partial<typeof e>).motionUnlockAt;
+    e.freezeUntil = e.answerUnlockAt = start + 1600;
+    (room as { schemaVersion: number }).schemaVersion = 3;
+    const deadline = q.deadline;
+    expect(upgradeRoom(room)).toBe(true);
+    expect(e.iceRequiredTaps).toBe(4);
+    expect(e.motionUnlockAt).toBe(start);
+    expect(e.freezeUntil).toBe(start + 1600);
+    expect(e.overlayVersion).toBeUndefined();
+    expect(q.deadline).toBe(deadline);
+  });
+  it.each([3, 4, 5])(
+    "keeps an already-resolved legacy %i-tap freeze and its original deadlines",
+    (required) => {
+      const { room, host, start, q } = fixture(false);
+      const e = effect(room, host.id, ["freeze"]);
+      delete e.overlayVersion;
+      delete e.slimeUntil;
+      delete e.inkUntil;
+      e.iceRequiredTaps = required;
+      e.freezeUntil = e.answerUnlockAt = start + 1200;
+      ice(room, host.id, start + 100);
+      (room as { schemaVersion: number }).schemaVersion = 4;
+      const original = structuredClone(q);
+      expect(upgradeRoom(room)).toBe(true);
+      expect(q).toEqual(original);
+      for (let n = 2; n <= required; n++) ice(room, host.id, start + n * 100);
+      expect(q.iceProgress[host.id].acceptedTaps).toBe(required);
+      expect(q.iceProgress[host.id].brokenAt).not.toBeNull();
+      expect(e.freezeUntil).toBe(start + 1200);
+      expect(effect(room, host.id, ["freeze"]).iceRequiredTaps).toBe(6);
+    },
+  );
+  it("uses a single bounded two/three-swipe budget, plus three/four accessible steps", () => {
+    const p = { ...emptySlime(), strokes: 2, distance: 1.5 };
+    expect(slimeComplete(p, 0.6, 3)).toBe(true);
+    expect(slimeComplete({ ...p, strokes: 1 }, 1, 3)).toBe(false);
+    expect(slimeComplete(p, 1, 4)).toBe(false);
+    expect(slimeComplete({ ...p, strokes: 3, distance: 2 }, 0.6, 4)).toBe(true);
+    expect(slimeComplete({ ...emptySlime(), keyboardSteps: 3 }, 0, 3)).toBe(
+      true,
+    );
+    expect(slimeComplete({ ...emptySlime(), keyboardSteps: 3 }, 0, 4)).toBe(
+      false,
+    );
+  });
+  it.each([
+    ["slime", "ink"],
+    ["slime", "freeze"],
+    ["ink", "freeze"],
+    ["freeze", "shuffle"],
+    ["freeze", "roulette"],
+    ["ink", "upside-down"],
+    ["slime", "ink", "freeze"],
+    ["slime", "ink", "freeze", "roulette", "shuffle", "upside-down", "slime"],
+  ] as AbilityId[][])(
+    "bounds mixed schedules and keeps every attack: %j",
+    (...abilities) => {
+      const { room, host, start, q } = fixture();
+      const e = effect(room, host.id, abilities);
+      expect(Object.values(e.counts).reduce((n, count) => n + count, 0)).toBe(
+        abilities.length,
+      );
+      expect(e.answerUnlockAt - start).toBeLessThanOrEqual(2500);
+      expect(e.overlaysUntil - start).toBeLessThanOrEqual(10500);
+      expect(e.slimeUntil! - e.overlaysFrom).toBe(3000);
+      expect(e.inkUntil! - e.overlaysFrom).toBe(4000);
+      expect(e.overlaysFrom).toBe(e.upsideUntil);
+      const before = structuredClone(e);
+      answer(room, host.id, (q.correctIndex + 1) % 4, e.overlaysFrom + 1);
+      expect(q.sabotage!.effects[host.id]).toEqual(before);
+      expect(q.deadline).toBe(start + 15000);
+    },
+  );
+  it("targets text independently of displayed order with a coordinated visible area cap", () => {
+    const text: TextRegion[] = [0, 1, 2, 3].map((index) => ({
+      index,
+      x: (index % 2) * 0.5 + 0.08,
+      y: Math.floor(index / 2) * 0.5 + 0.2,
+      width: 0.38,
+      height: 0.2,
+    }));
+    for (const groups of [0, 3, 4]) {
+      const layout = obstructionLayout(text, true, groups, "question-phase");
+      expect(layout).toEqual(
+        obstructionLayout([...text].reverse(), true, groups, "question-phase"),
+      );
+      expect(layout.slime).toHaveLength(4);
+      expect(layout.ink).toHaveLength(groups);
+      expect(
+        [...layout.slime, ...layout.ink].reduce(
+          (n, r) => n + r.width * r.height,
+          0,
+        ),
+      ).toBeLessThanOrEqual(0.25);
+      for (const r of [...layout.slime, ...layout.ink]) {
+        expect(
+          text.some(
+            (t) =>
+              r.x >= t.x &&
+              r.y >= t.y &&
+              r.x + r.width <= t.x + t.width + 1e-9 &&
+              r.y + r.height <= t.y + t.height + 1e-9,
+          ),
+        ).toBe(true);
+      }
+    }
+  });
   it("preserves an in-progress legacy finale answer and uses new rules only on the next prepared question", () => {
     const { room, host, q, start } = fixture();
     q.answers[host.id] = {

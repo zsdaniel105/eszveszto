@@ -401,7 +401,7 @@ describe("real Display HTTP/WebSocket identity and recovery", () => {
       r.quiz!.round = 5;
       r.quiz!.answeringMode = "multi-guess";
     });
-    await new Promise((resolve) => setTimeout(resolve, 2100)); // Original parallel lock is capped at two seconds.
+    await new Promise((resolve) => setTimeout(resolve, 2600)); // Freeze and movement run in parallel, capped at 2.5 seconds.
     q = (await stored(s.made.code)).quiz!;
     const phase = {
       sessionId: q.sessionId,

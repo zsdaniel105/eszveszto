@@ -655,8 +655,8 @@ describe("real Worker and Durable Object transport", () => {
     expect(s.incoming).toHaveLength(7);
     expect(new Set(s.incoming.map((a) => a.attackerId)).size).toBe(7);
     expect(s.incoming.every((a) => a.targetId === ids[0])).toBe(true);
-    expect(s.effects!.answerUnlockAt - game.startedAt).toBe(2000);
-    expect(s.effects!.freezeUntil - game.startedAt).toBe(1600);
+    expect(s.effects!.answerUnlockAt - game.startedAt).toBe(2500);
+    expect(s.effects!.freezeUntil - game.startedAt).toBe(2500);
     expect(JSON.stringify(game)).not.toContain("correctIndex");
     const stored = (await runInDurableObject(stub, async (_instance, ctx) =>
       ctx.storage.get<StoredRoom>("room"),
@@ -815,7 +815,7 @@ describe("real Worker and Durable Object transport", () => {
     expect(
       restored.type === "state" && restored.room.game!.myIce,
     ).toMatchObject({ acceptedTaps: 1, broken: false });
-    for (let n = 0; n < 2; n++) {
+    for (let n = 0; n < 5; n++) {
       await new Promise((resolve) => setTimeout(resolve, 90));
       expect(await host.action({ type: "ice-tap", ...c })).toMatchObject({
         type: "ack",
@@ -826,7 +826,7 @@ describe("real Worker and Durable Object transport", () => {
     );
     expect(
       broken.type === "state" && broken.room.game!.myIce!.acceptedTaps,
-    ).toBe(3);
+    ).toBe(6);
     const guessRequest = crypto.randomUUID(),
       guess = {
         type: "answer",

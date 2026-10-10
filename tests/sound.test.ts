@@ -253,12 +253,12 @@ describe("truthful multiplayer sound events", () => {
       4,
     );
     let previous = publicRoom(room, host.id);
-    for (let n = 0; n < 3; n++) {
+    for (let n = 0; n < 6; n++) {
       applyAction(room, host.id, { type: "ice-tap", ...c }, at + n * 100);
       const current = publicRoom(room, host.id);
       expect(
         roomSoundEvents(previous, current, host.id).map((e) => e.cue),
-      ).toEqual([n === 2 ? "ice-shatter" : "ice-crack"]);
+      ).toEqual([n === 5 ? "ice-shatter" : "ice-crack"]);
       expect(roomSoundEvents(current, current, host.id)).toEqual([]);
       expect(roomSoundEvents(null, current, host.id)).toEqual([]);
       previous = current;

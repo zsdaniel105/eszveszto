@@ -16,6 +16,8 @@ export type SoundCue =
   | "slime-complete"
   | "ice-crack"
   | "ice-shatter"
+  | "ink-arrive"
+  | "ink-clear"
   | "finale-points";
 // Replace these modest original motifs with a licensed asset backend later.
 const motifs: Record<SoundCue, number[]> = {
@@ -36,6 +38,8 @@ const motifs: Record<SoundCue, number[]> = {
   "slime-complete": [440, 587],
   "ice-crack": [988],
   "ice-shatter": [988, 740, 523],
+  "ink-arrive": [185, 147],
+  "ink-clear": [294, 392],
   "finale-points": [659, 784, 988],
 };
 export interface SoundBackend {

@@ -15,7 +15,6 @@ import { combineEffects, resolveSabotage } from "../src/server/sabotage";
 import {
   ABILITIES,
   presentationAt,
-  SABOTAGE_BALANCE,
   type AbilityId,
   type AttackRecord,
 } from "../src/shared/sabotage";
@@ -238,12 +237,12 @@ describe("authoritative sabotage selection", () => {
   });
 });
 describe("bounded composition and all six mechanics", () => {
-  it("freezes for 1.2 seconds, then diminishing 1.6/1.8/2.0 seconds, capped at two", () => {
+  it("freezes for 2.2 seconds once or 2.5 seconds when stacked, never sequentially", () => {
     expect(
       [1, 2, 3, 4, 7].map(
         (n) => combineEffects(records("freeze", n), 1000, 4).freezeUntil - 1000,
       ),
-    ).toEqual([1200, 1600, 1800, 2000, 2000]);
+    ).toEqual([2200, 2500, 2500, 2500, 2500]);
   });
   it("enforces Freeze on the server, preserving the original deadline, score calculation and answer lock", () => {
     const { room, players } = fixture();
@@ -258,7 +257,7 @@ describe("bounded composition and all six mechanics", () => {
         room,
         players[0].id,
         { type: "answer", optionIndex: q.correctIndex, ...c },
-        start + 1199,
+        start + 2199,
       ),
     ).toThrow("fagyasztás");
     expect(q.answers[players[0].id]).toBeUndefined();
@@ -267,34 +266,36 @@ describe("bounded composition and all six mechanics", () => {
       room,
       players[0].id,
       { type: "answer", optionIndex: q.correctIndex, ...c },
-      start + 1200,
+      start + 2200,
     );
     expect(() =>
       applyAction(
         room,
         players[0].id,
         { type: "answer", optionIndex: 0, ...c },
-        start + 1300,
+        start + 2300,
       ),
     ).toThrow("rögzítettük");
     applyAction(
       room,
       players[1].id,
       { type: "answer", optionIndex: (q.correctIndex + 1) % 4, ...c },
-      start + 1400,
+      start + 2400,
     );
     expect(
       q.result!.players.find((p) => p.playerId === players[0].id)!.total,
-    ).toBe(146);
+    ).toBe(142);
   });
   it("makes slime removable patches with capped diminishing count", () => {
     const single = combineEffects(records("slime"), 1000, 4),
       stacked = combineEffects(records("slime", 7), 1000, 4);
-    expect(single.slimePatches).toBe(2);
-    expect(stacked.slimePatches).toBe(3);
+    expect(single.slimePatches).toBe(1);
+    expect(stacked.slimePatches).toBe(1);
     expect(stacked.counts.slime).toBe(7);
+    expect(single.slimeLobes).toBe(6);
+    expect(stacked.slimeLobes).toBe(8);
     expect(presentationAt(single, 1000, 4).overlays).toBe(true);
-    expect(presentationAt(single, 5500, 4).overlays).toBe(false);
+    expect(presentationAt(single, 4000, 4).overlays).toBe(false);
   });
   it("gives ink distinct capped patches, sharing an obstruction ceiling with slime", () => {
     const e = combineEffects(
@@ -302,14 +303,12 @@ describe("bounded composition and all six mechanics", () => {
       1000,
       4,
     );
-    expect(e.inkPatches).toBe(3);
-    expect(e.slimePatches).toBe(3);
-    const area =
-      ((e.slimePatches * SABOTAGE_BALANCE.slimeHeightPercent +
-        e.inkPatches * SABOTAGE_BALANCE.inkHeightPercent) *
-        SABOTAGE_BALANCE.patchWidthPercent) /
-      100;
-    expect(area).toBeLessThanOrEqual(25);
+    expect(e.inkPatches).toBe(4);
+    expect(e.slimePatches).toBe(1);
+    expect(e.slimeLobes).toBe(8);
+    expect(e.slimeSteps).toBe(4);
+    expect(e.slimeUntil! - e.overlaysFrom).toBe(3000);
+    expect(e.inkUntil! - e.overlaysFrom).toBe(4000);
   });
   it("limits shuffle to one or two discrete rearrangements with stable canonical answer identities", () => {
     const single = combineEffects(records("shuffle"), 1000, 4),
@@ -348,13 +347,13 @@ describe("bounded composition and all six mechanics", () => {
       1000,
       4,
     );
-    expect(e.upsideFrom).toBe(3000);
-    expect(e.upsideUntil).toBe(7000);
-    expect(e.overlaysFrom).toBe(7000);
-    expect(presentationAt(e, 3000, 4).upsideDown).toBe(true);
-    expect(presentationAt(e, 7000, 4).upsideDown).toBe(false);
-    expect(presentationAt(e, 7000, 4).overlays).toBe(true);
-    expect(presentationAt(e, 11500, 4).overlays).toBe(false);
+    expect(e.upsideFrom).toBe(3500);
+    expect(e.upsideUntil).toBe(7500);
+    expect(e.overlaysFrom).toBe(7500);
+    expect(presentationAt(e, 3500, 4).upsideDown).toBe(true);
+    expect(presentationAt(e, 7500, 4).upsideDown).toBe(false);
+    expect(presentationAt(e, 7500, 4).overlays).toBe(true);
+    expect(presentationAt(e, 10500, 4).overlays).toBe(false);
   });
   it.each(["shuffle", "roulette"] as const)(
     "maps intended canonical answers under %s and keeps actual correct-answer results",
@@ -414,8 +413,8 @@ describe("bounded composition and all six mechanics", () => {
     const start = room.quiz!.phaseStartedAt,
       e = s.effects[players[0].id];
     expect(e.counts).toMatchObject({ freeze: 3, slime: 2, roulette: 2 });
-    expect(e.answerUnlockAt - start).toBe(2000);
-    expect(e.freezeUntil - start).toBe(1800);
+    expect(e.answerUnlockAt - start).toBe(2500);
+    expect(e.freezeUntil - start).toBe(2500);
     expect(
       publicRoom(room, players[0].id).game!.sabotage!.incoming,
     ).toHaveLength(7);
@@ -428,7 +427,7 @@ describe("bounded composition and all six mechanics", () => {
           optionIndex: room.quiz!.correctIndex,
           ...context(room),
         },
-        start + 2100,
+        start + 2600,
       );
     expect(room.phase).toBe("results");
     expect(room.quiz!.participants.every((p) => p.correctAnswers === 1)).toBe(

@@ -64,12 +64,12 @@ A központi regiszter `src/shared/sabotage.ts`; az összevonás `src/server/sabo
 
 | Stabil ID / magyar név         | Mechanika                                                                                                                                                | Több azonos támadás                                                         |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `slime` / Takonybomba          | Organikus zöld foltok a kérdés/válaszok kis részein. Valódi ujj-/egérsöprés törli a vászonmaszkot; foltonként több söprés vagy négy akadálymentes lépés. | `min(3, 1 + ceil(támadásszám / 2))` folt; egy támadás 2 folt.               |
-| `freeze` / Fagyasztás          | Feltörhető jégbarrier: 1/2/3+ támadásra 3/4/5 elfogadott koppintás. Korai feloldás szerveren is.                                                         | 1/2/3/4+ támadás: 1200/1600/1800/2000 ms.                                   |
-| `shuffle` / Káosz              | Tényleges, célpontspecifikus helycsere a megjelent válaszokon 650 ms-nél; 200 ms rendeződési jelzés.                                                     | 2+ támadásnál még egy helycsere 1250 ms-nél. Zár feloldása 850/1450 ms-nél. |
-| `upside-down` / Feje tetejére! | Csak a válaszszöveg fordul 180°-kal; kérdés, gombhely, időmérő és navigáció nem. Automatikusan visszaáll.                                                | 3000 ms + 500 ms minden további támadásra, maximum 4000 ms.                 |
-| `ink` / Tintapaca              | Sötét csillagszerű tinta: legalább 16 px-es rövid söprés vagy két koppintás/kattintás/Enter. Első megnyomás halványít, második eltüntet.                 | Ugyanaz a foltszámképlet, maximum 3 tintafolt.                              |
-| `roulette` / Válaszrulett      | A válaszok 2000 ms alatt négyszer helyet cserélnek; a körforgás végén stabilak. Beküldés addig tiltott.                                                  | 2+ támadásnál öt helycsere, nem hosszabb idő.                               |
+| `slime` / Takonybomba | Válaszszövegre célzott, közös zöld Canvas-maszk; valódi söpréssel fokozatosan törlődik. 3 mp automatikus lejárat. | 6/7/8 lebeny 1/2/3+ támadásnál; közös 2–3, halmozva 3–4 hasznos söprés. Billentyűzettel 3/4 lépés. |
+| `freeze` / Fagyasztás | Olvasható, áttetsző, szerveresen feltörhető jég; hét különböző repedési szakasz. | Egy támadás: 6 koppintás, 2200 ms; 2+ támadás: 7 koppintás, 2500 ms. |
+| `shuffle` / Káosz | Helycsere 650 ms-nél; 200 ms rendeződés. | 2+ támadásnál még 1250 ms-nél; zár 850/1450 ms. |
+| `upside-down` / Feje tetejére! | Csak a válaszszöveg fordul 180°-kal, automatikusan visszaáll. | 3000 ms + 500 ms további támadásonként, maximum 4000 ms. |
+| `ink` / Tintapaca | Sötét, részleges szófedő maszkok: foltonként 350 ms folyamatos nyomás, korai elengedés megszakítja. Nincs globális választiltás. | 3 folt egy, legfeljebb 4 több támadásnál. Lejárat 4000 ms. |
+| `roulette` / Válaszrulett | 2000 ms alatt négy látható helycsere, majd stabil válaszok. | 2+ támadásnál öt, változatlan 2000 ms. |
 
 A kérdés saját kezdeti válaszkeverése közös és külön történik. A szabotázs a kérdés megjelenése után módosítja a célpont sorrendjét. A szerver előre mentett, megoldókulcstól független, nem nulla eltolású válaszindex-permutációkat és abszolút időket küld. A React-gomb kulcsa és beküldött indexe végig ugyanaz a kanonikus identitás; a betűjel is ehhez kötődik. A helycserék alatt a kliens `aria-disabled` állapotot és megnyomáskor visszajelzést ad, a szerver pedig `ANSWERS_MOVING` hibával tiltja a túl korai választ. Nincs véletlenül másik válasszá változó beküldés. A feloldás pillanatára stabil az elrendezés.
 
@@ -77,12 +77,12 @@ A kérdés saját kezdeti válaszkeverése közös és külön történik. A sza
 
 Minden elfogadott támadás megőrzi a támadó ID-ját, képességét, célpontját és feloldási eredményét. A célpontonkénti összesítés nem dob el és nem irányít át támadást. Típusonként csökkenő hozadék és szigorú felső korlát érvényes; a fölös mechanikai erő helyett a valós szám és teljes támadáslista marad a társas visszajelzésben.
 
-1. Fagyasztás és mozgás párhuzamosan indul a kérdés kezdetén. Feltörés nélkül a közös beküldési zár `max(fagyasztás, mozgás)`, **maximum 2000 ms**, nem ezek összege. Három Fagyasztás + két Rulett így 2 mp zár, nem 5,8 mp.
+1. Fagyasztás és mozgás párhuzamosan indul a kérdés kezdetén. Feltörés nélkül a közös beküldési zár `max(fagyasztás, mozgás)`, **maximum 2500 ms**, nem ezek összege. Három Fagyasztás + két Rulett így 2,5 mp zár.
 2. Káosz + Rulett együtt csak a Rulett legfeljebb öt helycseréjét futtatja; a Káosz egy további permutációval járul hozzá az utolsó, közös képkocka végső sorrendjéhez. Nem hosszabbítja a zárolást és nem indít külön mozgási sorozatot.
 3. A közös zár végétől fordul fejre az esetleges válaszszöveg, legfeljebb 4 mp-ig. Közben már lehet válaszolni.
-4. Ezután jelennek meg együtt a takony- és tintafoltok. Eltávolíthatók, és **4500 ms után automatikusan eltűnnek**. Közben is lehet válaszolni. A foltok legfeljebb 20% szélesek, takony 18%, tinta 16% magas; típusonként maximum három. Összes névleges befoglaló terület maximum 20,4%. A legalább 44 px-es érintési felület és legalább 280 px magas választerület a támogatott 320 px-es nézeten is a 25%-os kereten belül marad. Nem fedik le az összes választ vagy a teljes kérdést.
+4. Utána a takony és tinta közös, szövegre célzott területi kerettel jelenik meg. Takony **3000 ms**, tinta **4000 ms** az eredeti `overlaysFrom` időtől; gyors tisztításkor azonnal eltűnnek. A látható maszkok befoglaló területe összeadva legfeljebb a választerület 25%-a, a 44 px-es érintési felület átlátszó része nem takarás. Tinta mellett a takony kisebb, külön szövegrészeket fed; tisztítás után a megmaradt foltok nem nőnek és nem ugranak helyet.
 
-Legrosszabb vegyes ütemezésben az akadályok a normál 15 mp-ből legkésőbb 10,5 mp-nél elmúlnak; a beküldés legfeljebb az első 2 mp-ben tiltott. Hét támadás ugyanarra a játékosra mind megjelenik a nyilvántartásban. A határon túl érkező további támadás nem növeli a zárat, a foltszámot, a mozgásszámot vagy a fejre állítás idejét.
+Legrosszabb vegyes ütemezésben legkésőbb 10,5 mp-nél minden ideiglenes akadály eltűnik; beküldés legfeljebb az első 2,5 mp-ben tiltott. Hét támadás pontos nyilvántartása megmarad; nincs átirányítás, mechanikai korláton túli büntetés vagy extra kérdésidő.
 
 ### Ajánlat, célzás és szerver-visszaigazolás
 
@@ -308,3 +308,57 @@ Fizikai TV, iPhone vagy Android készülék nem volt tesztelve: a képek Chromiu
 ESLint, TypeScript, termékbuild, teljes Vitest/E2E és Wrangler deploy dry run sikeres. 1920×1080/1366×768/1280×720/1024×768 kijelző és 320/375/390/430 px telefon: vízszintes túlcsordulás/dokumentumgörgetés, érintési minimum, tényleges QR-render, alapból hiányzó telefonos prompt, stabil finale-gombrács és nyolcfős megjelenítés is ellenőrzött. [Ellenőrzött tényleges képek](screenshots/README.md#pr-6--közös-kijelző-és-telefonos-vezérlők). Nem fizikai készülékpróba és nem kézi éles deploy.
 
 Ajánlott következő PR: valódi TV/laptop + iOS/Android társas játékpróba, hozzáférhetőség, Wi-Fi/alvás/reconnect és QR távolsági kalibráció. Magyar narration külön mérföldkő, a kijelzőoldali cserefelületen és külön jóváhagyott időzítési szabállyal. Kérdésbank/content audit továbbra is önálló feladat; ez a PR nem ad új kérdést, karaktert, képességet vagy szolgáltatást.
+
+### PR #6 utóellenőrzés: stabil válaszgomb-jelzés
+
+A beolvasztás után befejeződő GitHub CI valódi TV-controller hibát talált: egy hosszabb döntőválaszhoz hozzáadott ✕ flex-elem néhány pixellel növelhette a sor magasságát, eltolva a következő gombsort. A ✓/✕ külön jelzőosztályt kapott; kizárólag TV controllerben abszolút pozíció a gomb sarkában, ezért nem változtatja az opciós rács méretét. Normál kvíz megjelenítése és az összes szerveres szabály változatlan, nincs új séma vagy időzár.
+
+A böngészőteszt pontos x/y/szélesség/magasság ellenőrzése megmaradt, nem lett toleranciával gyengítve. A leghosszabb valóban kiosztott hibás opciót választja, és a rögzített helyes tipp jelzését is ellenőrzi. A meglévő szándékos fázis-/helyesválasz-animáció végét megvárja, a tartós gombgeometria előtt; a hibás opció méretét azonnal ellenőrzi. Mérés előtt a rövid képernyő belső paneljén láthatóvá teszi a célzott választ, így a szándékos odagörgetést nem keveri össze a tipp okozta elmozdulással. Valódi kvíz, tippek és pontok, új tesztkapu nélkül.
+
+A javítás ellenőrzése: ESLint, TypeScript, 167 szabály-/Workers-teszt, termékbuild, 9 Chromium-forgatókönyv (5,5 perc) és Wrangler deploy dry run sikeres. Pontozás, állapotgép, válaszidentitás és infrastruktúra változatlan.
+
+## PR #8: interaktív akadályok és mobil bevitel
+
+### Pontos takony- és tintaszabály
+
+Új effektnél egyetlen közös takonyvászon és törlési feladat van. Egy támadás 6, kettő 7, három vagy több 8 organikus, átfedő lebenyt rajzol a tényleges válaszszöveg-téglalapokra. Koppintás nem töröl. Egy hasznos söprés legalább 0,28 normalizált úthossz; teljes tisztítás egy támadásnál legalább két söprés, 1,25 összes úthossz és 45% tényleges maszkeltávolítás. Halmozva legalább három söprés, 1,8 összes úthossz és ugyanaz a 45% küszöb; jellemző cél 2–3 / 3–4 söprés. Billentyűzetes közös alternatíva 3 / 4 Enter-lépés, fokozatos vizuális törléssel. Megszakadt gesztus megőrzi a valóban törölt pixeleket, de nem számít befejezett söprésnek.
+
+A Canvas `destination-out` valóban törli a maszkot; nem osztály kapcsolja le söprésenként. A nyomvonal legfeljebb 12×64 normalizált pont, úthossz 32-re korlátos; eszközönként/fázisonként helyi tárolás, resize után újrarajzolás, legfeljebb 2× DPR és 768×768 vászon. Nincs React-render pointermozgásonként vagy részecskemotor. Lejárat az eredeti `overlaysFrom + 3000`, nem a megjelenítés/frissítés ideje. A kérdés nem áll meg.
+
+Tinta egy támadásnál három, többnél legfeljebb négy külön csoport. A kanonikus indexek és a nyilvános fázis-ID stabil eltolása választ helyet; nincs megoldókulcs vagy helyességi függés. A folt **350 ms folyamatos pointer-nyomás** után eltűnik. Korai felengedés, pointercancel vagy fókuszvesztés megszakítja a befejezetlen holdot. Egy célzott timeout és CSS-jelző van, nem frame-időzítő. Enter/segítő technológia ugyanilyen hosszú, automatikus tisztítási műveletet indít. Egy gyors koppintás nem elég. A befejezett pointerhold rögzített felülete az elengedésig marad; a böngésző utólagos kompatibilitási kattintását a választerület nem fogadja el friss válaszgesztus nélkül. Takony ugyanezt a védelmet használja, lejárat alatt tartott pointerrel is.
+
+A tinta nem szerveres zár: a gomb olvasható része vagy betűjele rögtön használható, nem kötelező az összes foltot eltávolítani. Lejárat `overlaysFrom + 4000`. A már eltávolított csoportok ugyanabban a böngészőben frissítés, reconnect és rossz döntőtipp után sem térnek vissza. Pointer capture, mouse/stylus/touch, billentyűzet, csökkentett mozgás és meglévő opcionális hangvezérlő támogatott; nincs új audioengine/asset/függőség.
+
+### Takarási keret és olvashatóság
+
+Három külön mennyiség: a képernyő területe, a választerület maszk-befoglaló területe, illetve a szavak tényleges olvashatósága. Önálló takony a mért szöveg szélességének 85%-ára, magasságának 88%-ára helyez organikus, lyukas sziluettet: célzott kezdeti szövegzavar kb. 60–70%, nem ennyi teljesképernyő-takarás. Rövid szavak, betűméret és tördelés miatt az arány közelítés, nem minden glyph mért olvashatósági ígérete. A kérdéshez nincs maszk.
+
+Tinta önmagában egy szöveg 43%-os szélességi részletét fedi, nem minden teljes választ. Takony+tinta esetén külön 43% és 29% szélességi fragmentumot kapnak, átfedés nélkül. A közös helper a befoglaló területek összegét szükség esetén arányosan zsugorítja, **maximum a választerület 25%-ára**. Átlátszó, legalább 44 px-es hit area nem számít látható akadálynak; a többi válaszfelület működik. A maszkok helye a körre rögzített: egyik törlése/lejárata nem növeli a másikat. Minden elfogadott támadó/hatás rekordja megmarad, a korlát fölötti támadás csak a korlátos sűrűséghez és társas összesítéshez járul hozzá.
+
+### Jég és abszolút ütemezés
+
+Szándékos egyensúlyváltozás: egy Freeze **6 elfogadott koppintás / 2200 ms**, 2–7 támadás **7 / 2500 ms**. A világoskék réteg 7–15% opacitású alapszínt, élmenti fagyot és hét külön repedésútvonalat használ; a kérdés és válaszok olvashatók. A tömör „Jég: n/6–7” állapot a szerver által elfogadott darabszám. Optimista repedés legfeljebb a következő függő kérésekig tart; hibákra szerveres visszaegyeztetés, magyar jelzés. A tapok nem globális busy állapotban sorban várakoznak. 100 ms klienspacing és változatlan 80 ms szerverminimum: ideális esetben hat/hét érintés 0,5/0,6 mp, hálózati út függvényében.
+
+A korábbi `ice-tap` ellenőrzések, jogosultság, request-ID dedup, persist-before-ACK, fázis/session/kör és eredeti határidő változatlan. Feltörés csak a Freeze feltételét törli; Shuffle/Rulett külön mozgászára marad. `answerUnlockAt = start + max(freeze, motion)`, legfeljebb 2500 ms. A Káosz, Feje tetejére! és Válaszrulett saját szabálya nem változik. Fejre állítás a közös zár után, foltok annak végén; legkésőbb 10,5 mp-nél megszűnnek. Nincs extra idő vagy pont, a 15 mp kérdés és `(100 − 30 × hibás tippek + gyorsaság) × 2` döntőképlet marad.
+
+### Tárolás és mindkét játékmód
+
+`schemaVersion:5` marad; az újonnan feloldott effekt opcionális `overlayVersion:2`, `slimeUntil`, `inkUntil`, `slimeLobes`, `slimeSteps` mezőket kap. A Freeze követelménye és deadline már eddig is tartós mező volt. Régi v5/v4/v3/v2 kör **nem kerül újrafeloldásra**: eredeti 3/4/5 jégkoppintás, automatikus idő, foltok és jéghaladás megmarad. Hiányzó régi motion-idő rekonstrukciója kifejezetten a régi 1200/1600/1800/2000 ms táblát használja. Már mentett, feloldott régi effekthez a kliens legacy patch nézetet tart. Csak új feloldás kap új balanszot; nincs identitás/Display/jogosultság/opció/tipp/pont/fázis/deadline reset és új infrastruktúra-migráció.
+
+Normál kvíz és TV Party telefon ugyanazt a komponenst és szerveres szabályt használja. Kijelző nem kap személyes maszkot vagy magánadatot. Új kérdés és rematch új fázisazonosítóval tisztítja a helyi állapotot; frissítés és rossz döntőtipp ugyanazt őrzi. A vizuális tisztítás eszközön helyi, nem tamper-proof; a jégzár, idő és pont szerveres marad.
+
+### Mobil zoom és hozzáférhetőség
+
+Csak a játékos `GameView` tesz `data-player-gameplay` jelölőt a bodyra. Az app és belső game panel `touch-action:pan-y`: függőleges belső pan megmarad, véletlen pinch és double-tap zoomot a támogatott browserpolicy kizárja. Saját gesztust kezelő takony/jég/tinta `none`. A hook elhagyáskor visszaállít minden korábbi jelölőt; a TV `DisplayView` csak a meglévő viewport-lockot kapja, új telefonos érintéspolitikát nem. Nincs dokumentumszintű `touchmove` tiltás vagy globális `user-scalable=no`/`maximum-scale=1` meta.
+
+A főoldal, belépés, előszoba, inputfókusz és mobil billentyűzet normál marad. `100dvh`, safe-area, sticky timer és nagy szöveges/rövid/fekvő képernyő belső görgetése megmarad. A CSS nem harcol a böngésző/OS hozzáférhetőségi felülbírálatával. WebKit/Safari próba nem futott: a Playwright WebKit 27.2 hivatalos `cdn.playwright.dev` és `playwright.download.prss.microsoft.com` letöltése HTTP 403 „Domain forbidden” hibával elakadt. Fizikai Android Chrome, iOS Safari, stylus és segítő technológia ellenőrzése nincs: Chromium emulált touchscreen/CDP-gesztusai csak e futtatókörnyezetet igazolják. Ajánlott következő lépés valódi telefonos társas próba és hozzáférhetőségi kalibráció; új tartalom/szabotázs/TTS nem része ennek a PR-nak.
+
+A korábbi PR #3–#6 szakaszok történeti ellenőrzési adatok; az ott szereplő régi 2 mp / 3–5 tap / söpörhető tinta hangolást újonnan feloldott effekteknél ez a PR #8 szabály váltja fel.
+
+### PR #8 ellenőrzési eredmények
+
+`npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` és Wrangler deploy dry run sikeres. **184 szabály-/Workers-teszt kilenc fájlban**, a meglévő regressziók megtartásával: 6/7 tap, 80 ms szerverköz, dedup és identitás, feltörés/2200–2500 ms automatikus határ, külön mozgászár, eredeti határidők, régi aktív 3/4/5 tap és hiányzó régi mezők rekonstrukciója. A vegyes kombinációk és hét támadás pontos nyilvántartása, 25% maszkkeret, egyéni kanonikus válaszok és döntőpontok is ellenőrzöttek.
+
+**12 sikeres Chromium-böngészőforgatókönyv**, valódi fázisidőkkel: teljes Normál kvíz és hitelesített TV Party, nyolc játékos/hét támadás, Display-reconnect/fallback, finale/rematch, tényleges Canvas-maszkpixelek és söprésnyom, progresszív törlés/frissítés/resize, olvasható jég/külön repedéslépések, 350 ms tintahold/korai felengedés/cancel/billentyűzet és válaszadás megmaradt folt mellett. Vegyes takony+tinta+jég három tényleges támadótól; sem törlés, sem lejárat utáni felengedés nem küld választ. A maszkon nincs kérdéskulcs, a TV nem kap saját akadályt.
+
+320/375/390/430 px, rövid és fekvő nézet, DPR 2, nagyított betűméret és tényleges Chromium touchscreen/CDP double-tap/pinch/függőleges pan: a tesztelt böngészőben nincs véletlen nagyítás vagy dokumentum-elmozdulás, a belső görgetés működik, kilépés visszaállítja az érintési szabályt. [Hat megnézett screenshot](screenshots/README.md#pr-8--takony-olvasható-jég-és-nyomva-tartott-tinta). A fenti WebKit/valódi készülékes korlátok érvényesek; kézi éles telepítés nincs. Worker, bindingok, SQLite és preview izoláció változatlan.

@@ -116,7 +116,7 @@ export function DisplayView({
   storageWarning: boolean;
   onAction: (action: Action) => Promise<void>;
 }) {
-  useGameViewport();
+  useGameViewport(false);
   const game = room.game;
   const host = room.hostRole === "display" && room.hostId === identityId;
   const disabled = busy || !online;

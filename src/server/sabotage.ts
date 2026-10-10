@@ -102,23 +102,22 @@ export function combineEffects(
   const overlaysFrom = upsideUntil;
   return {
     counts,
+    overlayVersion: 2,
     freezeUntil: startsAt + freezeMs,
     answerUnlockAt,
     motionUnlockAt: startsAt + motionMs,
-    iceRequiredTaps: counts.freeze ? Math.min(5, 2 + counts.freeze) : 0,
+    iceRequiredTaps: counts.freeze ? (counts.freeze === 1 ? 6 : 7) : 0,
     frames,
     upsideFrom,
     upsideUntil,
     overlaysFrom,
-    overlaysUntil: overlaysFrom + b.overlayMs,
-    slimePatches: Math.min(
-      b.maxPatchesPerType,
-      counts.slime ? 1 + Math.ceil(counts.slime / 2) : 0,
-    ),
-    inkPatches: Math.min(
-      b.maxPatchesPerType,
-      counts.ink ? 1 + Math.ceil(counts.ink / 2) : 0,
-    ),
+    overlaysUntil: overlaysFrom + (counts.ink ? b.inkMs : b.slimeMs),
+    slimeUntil: overlaysFrom + b.slimeMs,
+    inkUntil: overlaysFrom + b.inkMs,
+    slimeLobes: counts.slime ? Math.min(8, 5 + counts.slime) : 0,
+    slimeSteps: counts.slime > 1 ? 4 : 3,
+    slimePatches: counts.slime ? 1 : 0, // One shared wipe budget; lobes are cosmetic density.
+    inkPatches: counts.ink ? Math.min(b.maxInkGroups, 2 + counts.ink) : 0,
   };
 }
 export function validTargets(room: StoredRoom, playerId: string) {
